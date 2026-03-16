@@ -54,6 +54,15 @@ type PushResultMsg struct {
 	Err error
 }
 
+type PullResultMsg struct {
+	Err error
+}
+
+type GitDiscardResultMsg struct {
+	Path string
+	Err  error
+}
+
 type EditorFinishedMsg struct {
 	Err error
 }

@@ -19,6 +19,9 @@ type Runner interface {
 	AddAll(ctx context.Context) error
 	Commit(ctx context.Context, message string) error
 	Push(ctx context.Context) error
+	Pull(ctx context.Context) error
+	Restore(ctx context.Context, path string) error
+	Clean(ctx context.Context, path string) error
 }
 
 type CLI struct {
@@ -90,6 +93,30 @@ func (c *CLI) Push(ctx context.Context) error {
 	_, err := c.run(ctx, "push")
 	if err != nil {
 		return fmt.Errorf("git push: %w", err)
+	}
+	return nil
+}
+
+func (c *CLI) Pull(ctx context.Context) error {
+	_, err := c.run(ctx, "pull")
+	if err != nil {
+		return fmt.Errorf("git pull: %w", err)
+	}
+	return nil
+}
+
+func (c *CLI) Restore(ctx context.Context, path string) error {
+	_, err := c.run(ctx, "checkout", "HEAD", "--", path)
+	if err != nil {
+		return fmt.Errorf("git restore: %w", err)
+	}
+	return nil
+}
+
+func (c *CLI) Clean(ctx context.Context, path string) error {
+	_, err := c.run(ctx, "clean", "-f", "--", path)
+	if err != nil {
+		return fmt.Errorf("git clean: %w", err)
 	}
 	return nil
 }

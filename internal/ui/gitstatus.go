@@ -49,6 +49,13 @@ func (m GitStatusModel) SelectedPath() string {
 	return m.entries[m.cursor].Path
 }
 
+func (m GitStatusModel) SelectedEntry() (GitStatusEntry, bool) {
+	if len(m.entries) == 0 {
+		return GitStatusEntry{}, false
+	}
+	return m.entries[m.cursor], true
+}
+
 func (m GitStatusModel) EntryCount() int {
 	return len(m.entries)
 }

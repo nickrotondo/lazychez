@@ -35,6 +35,7 @@ const (
 	OverlayHelp
 	OverlayCommit
 	OverlayConfirmApplyAll
+	OverlayConfirmGitDiscard
 )
 
 // narrowBreakpoint is the width below which we switch to stacked layout.
@@ -50,8 +51,10 @@ type Model struct {
 	diffView  DiffViewModel
 
 	// Overlay state
-	overlay     OverlayMode
-	commitInput textinput.Model
+	overlay          OverlayMode
+	commitInput      textinput.Model
+	discardPath      string
+	discardUntracked bool
 
 	// Status bar
 	statusMsg   string
@@ -210,6 +213,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, clearStatusAfter()
 
+	case PullResultMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Pull failed: %v", msg.Err), true)
+			return m, clearStatusAfter()
+		}
+		m.setStatus("Pulled", false)
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
+
+	case GitDiscardResultMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Discard failed: %v", msg.Err), true)
+			return m, clearStatusAfter()
+		}
+		m.setStatus(fmt.Sprintf("Discarded %s", msg.Path), false)
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
+
 	case EditorFinishedMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Editor error: %v", msg.Err), true)
@@ -254,6 +273,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			m.overlay = OverlayNone
 			return m, applyAll(m.chezmoi)
+		case "n", "esc":
+			m.overlay = OverlayNone
+		}
+		return m, nil
+
+	case OverlayConfirmGitDiscard:
+		switch msg.String() {
+		case "y":
+			m.overlay = OverlayNone
+			if m.discardUntracked {
+				return m, cleanFile(m.git, m.discardPath)
+			}
+			return m, restoreFile(m.git, m.discardPath)
 		case "n", "esc":
 			m.overlay = OverlayNone
 		}
@@ -393,6 +425,8 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commitInput.Focus()
 		return m, textinput.Blink
 	case "p":
+		return m, pullFromRemote(m.git)
+	case "P":
 		return m, pushToRemote(m.git)
 	case " ":
 		path := m.gitStatus.SelectedPath()
@@ -401,6 +435,13 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "a":
 		return m, stageAllFiles(m.git)
+	case "D":
+		if entry, ok := m.gitStatus.SelectedEntry(); ok {
+			m.discardPath = entry.Path
+			m.discardUntracked = entry.XY == "??"
+			m.overlay = OverlayConfirmGitDiscard
+		}
+		return m, nil
 	}
 
 	if newPath := m.gitStatus.SelectedPath(); newPath != prevPath && newPath != "" {
@@ -467,6 +508,8 @@ func (m Model) View() string {
 		screen = m.renderOverlay(screen, m.renderCommitInput())
 	case OverlayConfirmApplyAll:
 		screen = m.renderOverlay(screen, m.renderConfirmApplyAll())
+	case OverlayConfirmGitDiscard:
+		screen = m.renderOverlay(screen, m.renderConfirmGitDiscard())
 	}
 
 	return screen
@@ -671,7 +714,7 @@ func (m Model) renderFooter() string {
 	case PaneGitStatus:
 		paneHints = []string{
 			hint("space", "stage"), hint("a", "stage all"),
-			hint("c", "commit"), hint("p", "push"), hint("0-2", "panels"),
+			hint("c", "commit"), hint("p", "pull"), hint("P", "push"), hint("D", "discard"), hint("0-2", "panels"),
 		}
 	case PaneDiff:
 		paneHints = []string{hint("0-2", "panels")}
@@ -726,7 +769,9 @@ func (m Model) renderHelp() string {
     space       Stage file (git add)
     a           Stage all files
     c           Commit (opens input)
-    p           Push to remote
+    p           Pull from remote
+    P           Push to remote
+    D           Discard changes
 
   General
     r           Refresh all panes
@@ -752,6 +797,16 @@ func (m Model) renderConfirmApplyAll() string {
 		"%s\n\n%s\n\n%s",
 		PaneTitle.Render("Confirm Apply All"),
 		"Apply all managed files to destination?",
+		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
+	)
+	return OverlayStyle.Render(content)
+}
+
+func (m Model) renderConfirmGitDiscard() string {
+	content := fmt.Sprintf(
+		"%s\n\n%s\n\n%s",
+		PaneTitle.Render("Confirm Discard"),
+		fmt.Sprintf("Discard changes to %s?", m.discardPath),
 		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
 	)
 	return OverlayStyle.Render(content)
@@ -967,6 +1022,33 @@ func pushToRemote(r git.Runner) tea.Cmd {
 		defer cancel()
 		err := r.Push(ctx)
 		return PushResultMsg{Err: err}
+	}
+}
+
+func pullFromRemote(r git.Runner) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := r.Pull(ctx)
+		return PullResultMsg{Err: err}
+	}
+}
+
+func restoreFile(r git.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.Restore(ctx, path)
+		return GitDiscardResultMsg{Path: path, Err: err}
+	}
+}
+
+func cleanFile(r git.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.Clean(ctx, path)
+		return GitDiscardResultMsg{Path: path, Err: err}
 	}
 }
 
