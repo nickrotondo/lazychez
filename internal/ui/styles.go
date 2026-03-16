@@ -60,6 +60,8 @@ var (
 	// Footer
 	HelpKey  = lipgloss.NewStyle().Foreground(ActiveBorderColor).Bold(true)
 	HelpDesc = lipgloss.NewStyle().Foreground(MutedColor)
+	HelpSep  = lipgloss.NewStyle().Foreground(MutedColor)
+	FooterLink = lipgloss.NewStyle().Foreground(lipgloss.Color("#a9b1d6"))
 
 	// Status bar
 	StatusBarStyle = lipgloss.NewStyle().

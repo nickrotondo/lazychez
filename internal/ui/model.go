@@ -273,7 +273,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focused = PaneGitStatus
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
-	case "3":
+	case "0":
 		m.focused = PaneDiff
 		m.updateDimensions()
 		return m, nil
@@ -282,6 +282,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.overlay = OverlayHelp
 		return m, nil
+	case "C":
+		return m, chezmoiEditConfig()
 	}
 
 	// Pane-specific keys
@@ -421,9 +423,9 @@ func (m Model) View() string {
 		fileTitle = fmt.Sprintf("[1] Managed Files (%d) · %d drifted", m.fileList.FileCount(), dc)
 	}
 	gitTitle := fmt.Sprintf("[2] Source Git (%d)", m.gitStatus.EntryCount())
-	diffTitle := "[3] Diff"
+	diffTitle := "[0] Diff"
 	if p := m.diffView.Path(); p != "" {
-		diffTitle = fmt.Sprintf("[3] Diff — %s", p)
+		diffTitle = fmt.Sprintf("[0] Diff — %s", p)
 	}
 
 	var main string
@@ -634,43 +636,42 @@ func (m Model) renderStatusBar() string {
 }
 
 func (m Model) renderFooter() string {
-	var keys string
-	switch m.focused {
-	case PaneFileList:
-		keys = fmt.Sprintf(
-			"%s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
-			HelpKey.Render("j/k"), HelpDesc.Render("navigate"),
-			HelpKey.Render("space"), HelpDesc.Render("add"),
-			HelpKey.Render("a"), HelpDesc.Render("apply"),
-			HelpKey.Render("A"), HelpDesc.Render("apply all"),
-			HelpKey.Render("e/E"), HelpDesc.Render("edit"),
-			HelpKey.Render("1-3"), HelpDesc.Render("panels"),
-		)
-	case PaneGitStatus:
-		keys = fmt.Sprintf(
-			"%s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
-			HelpKey.Render("j/k"), HelpDesc.Render("navigate"),
-			HelpKey.Render("space"), HelpDesc.Render("stage"),
-			HelpKey.Render("a"), HelpDesc.Render("stage all"),
-			HelpKey.Render("c"), HelpDesc.Render("commit"),
-			HelpKey.Render("p"), HelpDesc.Render("push"),
-			HelpKey.Render("1-3"), HelpDesc.Render("panels"),
-		)
-	case PaneDiff:
-		keys = fmt.Sprintf(
-			"%s %s  %s %s",
-			HelpKey.Render("j/k"), HelpDesc.Render("scroll"),
-			HelpKey.Render("1-3"), HelpDesc.Render("panels"),
-		)
+	sep := HelpSep.Render(" | ")
+	hint := func(key, desc string) string {
+		return HelpKey.Render(key) + " " + HelpDesc.Render(desc)
 	}
 
-	global := fmt.Sprintf(
-		"  %s %s  %s %s",
-		HelpKey.Render("r"), HelpDesc.Render("refresh"),
-		HelpKey.Render("?"), HelpDesc.Render("help"),
-	)
+	var paneHints []string
+	switch m.focused {
+	case PaneFileList:
+		paneHints = []string{
+			hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
+			hint("e/E", "edit"), hint("0-2", "panels"),
+		}
+	case PaneGitStatus:
+		paneHints = []string{
+			hint("space", "stage"), hint("a", "stage all"),
+			hint("c", "commit"), hint("p", "push"), hint("0-2", "panels"),
+		}
+	case PaneDiff:
+		paneHints = []string{hint("0-2", "panels")}
+	}
 
-	return " " + keys + global
+	globalHints := []string{
+		hint("C", "config"), hint("?", "help"), hint("q", "quit"),
+	}
+
+	left := " " + strings.Join(append(paneHints, globalHints...), sep)
+	right := hyperlink("https://x.com/nicklrotondo", FooterLink.Render("𝕏 @nicklrotondo")) + " "
+
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	gap := m.width - leftWidth - rightWidth
+	if gap < 1 {
+		return left
+	}
+
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func (m Model) renderOverlay(background, overlay string) string {
@@ -689,7 +690,7 @@ func (m Model) renderHelp() string {
   Navigation
     j/k         Move up/down
     g/G         Jump to top/bottom
-    1/2/3       Jump to panel
+    0/1/2       Jump to panel
     tab         Next panel
     shift+tab   Previous panel
 
@@ -708,6 +709,7 @@ func (m Model) renderHelp() string {
 
   General
     r           Refresh all panes
+    C           Edit chezmoi config
     ?           Toggle this help
     q           Quit`
 
@@ -735,6 +737,11 @@ func (m Model) renderConfirmApplyAll() string {
 }
 
 // --- Internal helpers ---
+
+// hyperlink wraps text in an OSC 8 terminal hyperlink escape sequence.
+func hyperlink(url, text string) string {
+	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
+}
 
 func (m *Model) setStatus(msg string, isError bool) {
 	m.statusMsg = msg
@@ -1003,6 +1010,20 @@ func chezmoiEdit(filePath string) tea.Cmd {
 		}
 	}
 	c := exec.Command("chezmoi", "edit", filePath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return EditorFinishedMsg{Err: err}
+	})
+}
+
+func chezmoiEditConfig() tea.Cmd {
+	editor, _ := resolveEditor()
+	if isGUIEditor(editor) {
+		return func() tea.Msg {
+			err := exec.Command("chezmoi", "edit-config").Run()
+			return EditorFinishedMsg{Err: err}
+		}
+	}
+	c := exec.Command("chezmoi", "edit-config")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return EditorFinishedMsg{Err: err}
 	})
