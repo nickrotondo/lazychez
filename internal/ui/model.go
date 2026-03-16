@@ -2,8 +2,12 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -199,6 +203,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, clearStatusAfter()
 
+	case EditorFinishedMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Editor error: %v", msg.Err), true)
+			return m, clearStatusAfter()
+		}
+		return m, m.refreshAll()
+
 	case ClearStatusMsg:
 		m.statusMsg = ""
 		m.statusError = false
@@ -313,6 +324,26 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "A":
 		m.overlay = OverlayConfirmApplyAll
 		return m, nil
+	case "e":
+		path := m.fileList.SelectedPath()
+		if path != "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				m.setStatus(fmt.Sprintf("Error: %v", err), true)
+				return m, clearStatusAfter()
+			}
+			return m, chezmoiEdit(homeDir + "/" + path)
+		}
+	case "E":
+		path := m.fileList.SelectedPath()
+		if path != "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				m.setStatus(fmt.Sprintf("Error: %v", err), true)
+				return m, clearStatusAfter()
+			}
+			return m, openInEditor(homeDir + "/" + path)
+		}
 	}
 
 	if newPath := m.fileList.SelectedPath(); newPath != prevPath && newPath != "" {
@@ -607,11 +638,12 @@ func (m Model) renderFooter() string {
 	switch m.focused {
 	case PaneFileList:
 		keys = fmt.Sprintf(
-			"%s %s  %s %s  %s %s  %s %s  %s %s",
+			"%s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
 			HelpKey.Render("j/k"), HelpDesc.Render("navigate"),
 			HelpKey.Render("space"), HelpDesc.Render("add"),
 			HelpKey.Render("a"), HelpDesc.Render("apply"),
 			HelpKey.Render("A"), HelpDesc.Render("apply all"),
+			HelpKey.Render("e/E"), HelpDesc.Render("edit"),
 			HelpKey.Render("1-3"), HelpDesc.Render("panels"),
 		)
 	case PaneGitStatus:
@@ -665,6 +697,8 @@ func (m Model) renderHelp() string {
     space       Add file (chezmoi add)
     a           Apply file (chezmoi apply)
     A           Apply all files
+    e           Edit source (chezmoi edit)
+    E           Edit destination file
 
   Git Actions
     space       Stage file (git add)
@@ -901,6 +935,77 @@ func pushToRemote(r git.Runner) tea.Cmd {
 		err := r.Push(ctx)
 		return PushResultMsg{Err: err}
 	}
+}
+
+// GUI editors that don't need terminal control — run them async so the TUI stays visible.
+var guiEditors = map[string]bool{
+	"code": true, "code-insiders": true,
+	"cursor": true,
+	"subl": true, "sublime_text": true,
+	"zed": true,
+	"atom": true,
+	"fleet": true,
+	"idea": true, "goland": true, "webstorm": true, "pycharm": true,
+}
+
+func isGUIEditor(command string) bool {
+	base := filepath.Base(command)
+	return guiEditors[base]
+}
+
+func resolveEditor() (string, []string) {
+	out, err := exec.Command("chezmoi", "dump-config", "--format=json").Output()
+	if err == nil {
+		var cfg struct {
+			Edit struct {
+				Command string   `json:"command"`
+				Args    []string `json:"args"`
+			} `json:"edit"`
+		}
+		if json.Unmarshal(out, &cfg) == nil && cfg.Edit.Command != "" {
+			return cfg.Edit.Command, cfg.Edit.Args
+		}
+	}
+	if editor := os.Getenv("VISUAL"); editor != "" {
+		return editor, nil
+	}
+	if editor := os.Getenv("EDITOR"); editor != "" {
+		return editor, nil
+	}
+	return "vi", nil
+}
+
+func editorCmd(editor string, args []string, filePath string) tea.Cmd {
+	fullArgs := append(args, filePath)
+	if isGUIEditor(editor) {
+		return func() tea.Msg {
+			err := exec.Command(editor, fullArgs...).Run()
+			return EditorFinishedMsg{Err: err}
+		}
+	}
+	c := exec.Command(editor, fullArgs...)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return EditorFinishedMsg{Err: err}
+	})
+}
+
+func openInEditor(filePath string) tea.Cmd {
+	editor, args := resolveEditor()
+	return editorCmd(editor, args, filePath)
+}
+
+func chezmoiEdit(filePath string) tea.Cmd {
+	editor, _ := resolveEditor()
+	if isGUIEditor(editor) {
+		return func() tea.Msg {
+			err := exec.Command("chezmoi", "edit", filePath).Run()
+			return EditorFinishedMsg{Err: err}
+		}
+	}
+	c := exec.Command("chezmoi", "edit", filePath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return EditorFinishedMsg{Err: err}
+	})
 }
 
 func clearStatusAfter() tea.Cmd {

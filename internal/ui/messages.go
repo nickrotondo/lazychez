@@ -54,6 +54,10 @@ type PushResultMsg struct {
 	Err error
 }
 
+type EditorFinishedMsg struct {
+	Err error
+}
+
 // UI messages
 
 type StatusBarMsg struct {
