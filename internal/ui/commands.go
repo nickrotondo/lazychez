@@ -86,6 +86,15 @@ func stageFile(r git.Runner, path string) tea.Cmd {
 	}
 }
 
+func unstageFile(r git.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.Reset(ctx, path)
+		return GitStageResultMsg{Path: path, Err: err}
+	}
+}
+
 func stageAllFiles(r git.Runner) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

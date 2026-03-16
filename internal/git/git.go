@@ -21,6 +21,7 @@ type Runner interface {
 	Commit(ctx context.Context, message string) error
 	Push(ctx context.Context) error
 	Pull(ctx context.Context) error
+	Reset(ctx context.Context, path string) error
 	Restore(ctx context.Context, path string) error
 	Clean(ctx context.Context, path string) error
 }
@@ -118,6 +119,14 @@ func (c *CLI) Pull(ctx context.Context) error {
 	_, err := c.run(ctx, "pull")
 	if err != nil {
 		return fmt.Errorf("git pull: %w", err)
+	}
+	return nil
+}
+
+func (c *CLI) Reset(ctx context.Context, path string) error {
+	_, err := c.run(ctx, "reset", "HEAD", "--", path)
+	if err != nil {
+		return fmt.Errorf("git reset: %w", err)
 	}
 	return nil
 }

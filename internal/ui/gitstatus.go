@@ -121,12 +121,7 @@ func (m GitStatusModel) View() string {
 		e := m.entries[i]
 		selected := i == m.cursor && m.focused
 
-		var xyStr string
-		if selected {
-			xyStr = colorizeXYSelected(e.XY)
-		} else {
-			xyStr = colorizeXY(e.XY)
-		}
+		xyStr := colorizeXY(e.XY, selected)
 
 		text := " " + e.Path
 		xyWidth := lipgloss.Width(xyStr)
@@ -134,61 +129,48 @@ func (m GitStatusModel) View() string {
 			text += strings.Repeat(" ", pad)
 		}
 
+		pathStyle := filePathStyle(e.XY)
 		if selected {
-			lines = append(lines, xyStr+SelectedItem.Render(text))
-		} else {
-			lines = append(lines, xyStr+text)
+			pathStyle = pathStyle.Background(SelectedBg).Bold(true)
 		}
+		lines = append(lines, xyStr+pathStyle.Render(text))
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-func colorizeXYSelected(xy string) string {
+func filePathStyle(xy string) lipgloss.Style {
+	if isFullyStaged(xy) {
+		return lipgloss.NewStyle().Foreground(AddedColor)
+	}
+	return lipgloss.NewStyle()
+}
+
+func isFullyStaged(xy string) bool {
+	return len(xy) >= 2 && xy[1] == ' ' && xy[0] != ' ' && xy[0] != '?'
+}
+
+func colorizeXY(xy string, selected bool) string {
 	if len(xy) < 2 {
 		return xy
 	}
-	x := colorizeStatusCharSelected(rune(xy[0]))
-	y := colorizeStatusCharSelected(rune(xy[1]))
+	base := lipgloss.NewStyle()
+	if selected {
+		base = base.Background(SelectedBg).Bold(true)
+	}
+	x := renderPositionChar(rune(xy[0]), true, base)
+	y := renderPositionChar(rune(xy[1]), false, base)
 	return x + y
 }
 
-func colorizeXY(xy string) string {
-	if len(xy) < 2 {
-		return xy
-	}
-	x := colorizeStatusChar(rune(xy[0]))
-	y := colorizeStatusChar(rune(xy[1]))
-	return x + y
-}
-
-func colorizeStatusChar(c rune) string {
-	switch c {
-	case 'M':
-		return lipgloss.NewStyle().Foreground(ModifiedColor).Render(string(c))
-	case 'A':
-		return lipgloss.NewStyle().Foreground(AddedColor).Render(string(c))
-	case 'D':
-		return lipgloss.NewStyle().Foreground(DeletedColor).Render(string(c))
-	case '?':
-		return lipgloss.NewStyle().Foreground(AddedColor).Render(string(c))
-	default:
-		return string(c)
-	}
-}
-
-func colorizeStatusCharSelected(c rune) string {
-	base := lipgloss.NewStyle().Background(SelectedBg).Bold(true)
-	switch c {
-	case 'M':
-		return base.Foreground(ModifiedColor).Render(string(c))
-	case 'A':
-		return base.Foreground(AddedColor).Render(string(c))
-	case 'D':
-		return base.Foreground(DeletedColor).Render(string(c))
-	case '?':
-		return base.Foreground(AddedColor).Render(string(c))
-	default:
+// renderPositionChar colors a status char green if in the index (staged)
+// or red if in the worktree (unstaged).
+func renderPositionChar(c rune, staged bool, base lipgloss.Style) string {
+	if c == ' ' || c == 0 {
 		return base.Render(string(c))
 	}
+	if staged {
+		return base.Foreground(AddedColor).Render(string(c))
+	}
+	return base.Foreground(DeletedColor).Render(string(c))
 }

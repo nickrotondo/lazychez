@@ -423,9 +423,11 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "P":
 		return m, pushToRemote(m.git)
 	case " ":
-		path := m.gitStatus.SelectedPath()
-		if path != "" {
-			return m, stageFile(m.git, path)
+		if entry, ok := m.gitStatus.SelectedEntry(); ok {
+			if entry.XY[0] != ' ' && entry.XY[0] != '?' && entry.XY[1] == ' ' {
+				return m, unstageFile(m.git, entry.Path)
+			}
+			return m, stageFile(m.git, entry.Path)
 		}
 	case "a":
 		return m, stageAllFiles(m.git)
