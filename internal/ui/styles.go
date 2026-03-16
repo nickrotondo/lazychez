@@ -45,7 +45,6 @@ var (
 	NormalItem = lipgloss.NewStyle()
 
 	// Status indicators
-	ModifiedIndicator    = lipgloss.NewStyle().Foreground(ModifiedColor).SetString("●")
 	SourceEditedIndicator = lipgloss.NewStyle().Foreground(ModifiedColor).SetString("●") // source changed → apply
 	DestEditedIndicator   = lipgloss.NewStyle().Foreground(TitleColor).SetString("◆")   // dest changed → add
 	AddedIndicator       = lipgloss.NewStyle().Foreground(AddedColor).SetString("+")

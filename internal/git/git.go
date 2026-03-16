@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -53,16 +54,32 @@ func (c *CLI) Status(ctx context.Context) ([]StatusEntry, error) {
 
 func (c *CLI) Diff(ctx context.Context, path string) (string, error) {
 	// Tracked files: show all changes from HEAD (staged + unstaged)
-	out, _ := c.run(ctx, "diff", "HEAD", "--", path)
+	out, err := c.run(ctx, "diff", "HEAD", "--", path)
 	if out != "" {
 		return out, nil
+	}
+	if err != nil && !isExitCode1(err) {
+		return "", fmt.Errorf("git diff: %w", err)
 	}
 	// Untracked files: generate diff against /dev/null
-	out, _ = c.run(ctx, "diff", "--no-index", "--", "/dev/null", path)
+	out, err = c.run(ctx, "diff", "--no-index", "--", "/dev/null", path)
 	if out != "" {
 		return out, nil
 	}
+	if err != nil && !isExitCode1(err) {
+		return "", fmt.Errorf("git diff --no-index: %w", err)
+	}
 	return "", nil
+}
+
+// isExitCode1 returns true if the error is an exec.ExitError with code 1,
+// which git uses to indicate "files differ" (not a real error).
+func isExitCode1(err error) bool {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode() == 1
+	}
+	return false
 }
 
 func (c *CLI) Add(ctx context.Context, path string) error {
@@ -124,7 +141,7 @@ func (c *CLI) Clean(ctx context.Context, path string) error {
 func (c *CLI) run(ctx context.Context, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", c.sourceDir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	return string(out), err
 }
 

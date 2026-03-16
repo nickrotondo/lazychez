@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -105,7 +106,7 @@ func (c *CLI) Status(ctx context.Context) ([]StatusEntry, error) {
 }
 
 func (c *CLI) Diff(ctx context.Context, path string) (string, error) {
-	fullPath := c.homeDir + "/" + path
+	fullPath := filepath.Join(c.homeDir, path)
 	out, err := c.run(ctx, "diff", "--", fullPath)
 	if err != nil {
 		// chezmoi diff exits non-zero when there are differences
@@ -128,7 +129,7 @@ func (e *TemplateEditError) Error() string {
 }
 
 func (c *CLI) Add(ctx context.Context, path string) error {
-	fullPath := c.homeDir + "/" + path
+	fullPath := filepath.Join(c.homeDir, path)
 
 	srcPath, err := c.runStdout(ctx, "source-path", fullPath)
 	if err != nil {
@@ -211,7 +212,7 @@ func (c *CLI) patchTemplate(ctx context.Context, path, destPath, srcTemplatePath
 }
 
 func (c *CLI) Apply(ctx context.Context, path string) error {
-	fullPath := c.homeDir + "/" + path
+	fullPath := filepath.Join(c.homeDir, path)
 	_, err := c.run(ctx, "apply", "--force", fullPath)
 	if err != nil {
 		return fmt.Errorf("chezmoi apply %s: %w", path, err)

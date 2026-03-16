@@ -69,9 +69,4 @@ type EditorFinishedMsg struct {
 
 // UI messages
 
-type StatusBarMsg struct {
-	Text    string
-	IsError bool
-}
-
 type ClearStatusMsg struct{}
