@@ -67,6 +67,13 @@ func (m FileListModel) SelectedPath() string {
 	return m.files[m.cursor].Path
 }
 
+func (m FileListModel) SelectedItem() *FileItem {
+	if len(m.files) == 0 || m.cursor >= len(m.files) {
+		return nil
+	}
+	return &m.files[m.cursor]
+}
+
 func (m FileListModel) FileCount() int {
 	return len(m.files)
 }

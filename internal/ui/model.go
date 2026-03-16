@@ -61,6 +61,9 @@ type Model struct {
 	managedFiles []chezmoi.ManagedFile
 	statusData   []chezmoi.StatusEntry
 
+	// Diff cache: home-relative path → diff output (loaded once, refreshed on operations)
+	diffCache map[string]string
+
 	chezmoi chezmoi.Runner
 	git     git.Runner
 }
@@ -125,6 +128,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.diffView.SetContent(msg.Path, fmt.Sprintf("Error loading diff: %v", msg.Err))
 		} else {
+			if m.diffCache == nil {
+				m.diffCache = make(map[string]string)
+			}
+			m.diffCache[msg.Path] = msg.Diff
 			m.diffView.SetContent(msg.Path, msg.Diff)
 		}
 		return m, nil
@@ -346,9 +353,22 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, openInEditor(homeDir + "/" + path)
 		}
+	case "D":
+		if sel := m.fileList.SelectedItem(); sel != nil && sel.HasDrift() {
+			switch sel.Drift {
+			case DriftSourceEdited:
+				return m, addFile(m.chezmoi, sel.Path)
+			case DriftDestEdited:
+				return m, applyFile(m.chezmoi, sel.Path)
+			}
+		}
 	}
 
 	if newPath := m.fileList.SelectedPath(); newPath != prevPath && newPath != "" {
+		if diff, ok := m.diffCache[newPath]; ok {
+			m.diffView.SetContent(newPath, diff)
+			return m, nil
+		}
 		return m, fetchDiff(m.chezmoi, newPath)
 	}
 
@@ -646,7 +666,7 @@ func (m Model) renderFooter() string {
 	case PaneFileList:
 		paneHints = []string{
 			hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
-			hint("e/E", "edit"), hint("0-2", "panels"),
+			hint("D", "discard"), hint("e/E", "edit"), hint("0-2", "panels"),
 		}
 	case PaneGitStatus:
 		paneHints = []string{
@@ -698,6 +718,7 @@ func (m Model) renderHelp() string {
     space       Add file (chezmoi add)
     a           Apply file (chezmoi apply)
     A           Apply all files
+    D           Discard drift (revert change)
     e           Edit source (chezmoi edit)
     E           Edit destination file
 
@@ -795,9 +816,13 @@ func (m *Model) rebuildFileList() {
 	m.fileList.SetFiles(items)
 }
 
-func (m Model) fetchDiffForSelected() tea.Cmd {
+func (m *Model) fetchDiffForSelected() tea.Cmd {
 	path := m.fileList.SelectedPath()
 	if path == "" {
+		return nil
+	}
+	if diff, ok := m.diffCache[path]; ok {
+		m.diffView.SetContent(path, diff)
 		return nil
 	}
 	return fetchDiff(m.chezmoi, path)
@@ -811,7 +836,7 @@ func (m Model) fetchGitDiffForSelected() tea.Cmd {
 	return fetchGitDiff(m.git, path)
 }
 
-func (m Model) fetchDiffForFocusedPane() tea.Cmd {
+func (m *Model) fetchDiffForFocusedPane() tea.Cmd {
 	switch m.focused {
 	case PaneFileList:
 		return m.fetchDiffForSelected()
@@ -822,7 +847,8 @@ func (m Model) fetchDiffForFocusedPane() tea.Cmd {
 	}
 }
 
-func (m Model) refreshAll() tea.Cmd {
+func (m *Model) refreshAll() tea.Cmd {
+	m.diffCache = nil
 	return tea.Batch(
 		fetchManagedFiles(m.chezmoi),
 		fetchStatus(m.chezmoi),
