@@ -15,6 +15,7 @@ type StatusEntry struct {
 type Runner interface {
 	Status(ctx context.Context) ([]StatusEntry, error)
 	Diff(ctx context.Context, path string) (string, error)
+	Add(ctx context.Context, path string) error
 	AddAll(ctx context.Context) error
 	Commit(ctx context.Context, message string) error
 	Push(ctx context.Context) error
@@ -59,6 +60,14 @@ func (c *CLI) Diff(ctx context.Context, path string) (string, error) {
 		return out, nil
 	}
 	return "", nil
+}
+
+func (c *CLI) Add(ctx context.Context, path string) error {
+	_, err := c.run(ctx, "add", "--", path)
+	if err != nil {
+		return fmt.Errorf("git add: %w", err)
+	}
+	return nil
 }
 
 func (c *CLI) AddAll(ctx context.Context) error {

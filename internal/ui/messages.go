@@ -41,6 +41,11 @@ type GitStatusMsg struct {
 	Err     error
 }
 
+type GitStageResultMsg struct {
+	Path string // empty when staging all
+	Err  error
+}
+
 type CommitResultMsg struct {
 	Err error
 }

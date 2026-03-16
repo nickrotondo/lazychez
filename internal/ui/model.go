@@ -167,6 +167,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
+	case GitStageResultMsg:
+		if msg.Err != nil {
+			if msg.Path != "" {
+				m.setStatus(fmt.Sprintf("Error staging %s: %v", msg.Path, msg.Err), true)
+			} else {
+				m.setStatus(fmt.Sprintf("Error staging all: %v", msg.Err), true)
+			}
+		} else {
+			if msg.Path != "" {
+				m.setStatus(fmt.Sprintf("Staged %s", msg.Path), false)
+			} else {
+				m.setStatus("Staged all files", false)
+			}
+		}
+		return m, tea.Batch(clearStatusAfter(), fetchGitStatus(m.git))
+
 	case CommitResultMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Commit failed: %v", msg.Err), true)
@@ -325,6 +341,13 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	case "p":
 		return m, pushToRemote(m.git)
+	case " ":
+		path := m.gitStatus.SelectedPath()
+		if path != "" {
+			return m, stageFile(m.git, path)
+		}
+	case "a":
+		return m, stageAllFiles(m.git)
 	}
 
 	if newPath := m.gitStatus.SelectedPath(); newPath != prevPath && newPath != "" {
@@ -593,8 +616,10 @@ func (m Model) renderFooter() string {
 		)
 	case PaneGitStatus:
 		keys = fmt.Sprintf(
-			"%s %s  %s %s  %s %s  %s %s",
+			"%s %s  %s %s  %s %s  %s %s  %s %s  %s %s",
 			HelpKey.Render("j/k"), HelpDesc.Render("navigate"),
+			HelpKey.Render("space"), HelpDesc.Render("stage"),
+			HelpKey.Render("a"), HelpDesc.Render("stage all"),
 			HelpKey.Render("c"), HelpDesc.Render("commit"),
 			HelpKey.Render("p"), HelpDesc.Render("push"),
 			HelpKey.Render("1-3"), HelpDesc.Render("panels"),
@@ -642,6 +667,8 @@ func (m Model) renderHelp() string {
     A           Apply all files
 
   Git Actions
+    space       Stage file (git add)
+    a           Stage all files
     c           Commit (opens input)
     p           Push to remote
 
@@ -827,6 +854,24 @@ func applyAll(r chezmoi.Runner) tea.Cmd {
 	}
 }
 
+func stageFile(r git.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.Add(ctx, path)
+		return GitStageResultMsg{Path: path, Err: err}
+	}
+}
+
+func stageAllFiles(r git.Runner) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.AddAll(ctx)
+		return GitStageResultMsg{Err: err}
+	}
+}
+
 func fetchGitStatus(r git.Runner) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -844,9 +889,6 @@ func commitChanges(r git.Runner, message string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := r.AddAll(ctx); err != nil {
-			return CommitResultMsg{Err: err}
-		}
 		err := r.Commit(ctx, message)
 		return CommitResultMsg{Err: err}
 	}
