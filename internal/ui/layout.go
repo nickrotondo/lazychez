@@ -241,10 +241,25 @@ func (m Model) renderFooter() string {
 	var paneHints []string
 	switch m.focused {
 	case PaneFileList:
-		paneHints = []string{
-			hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
-			hint("D", "discard"), hint("e/E", "edit"), hint("0-2", "panels"),
+		sel := m.fileList.SelectedItem()
+		switch {
+		case sel != nil && sel.Drift == DriftDestEdited:
+			paneHints = []string{
+				hint("space", "add (dest → source)"), hint("a", "apply"),
+				hint("A", "apply all"), hint("D", "discard"), hint("e/E", "edit"),
+			}
+		case sel != nil && sel.Drift == DriftSourceEdited:
+			paneHints = []string{
+				hint("a", "apply (source → dest)"), hint("space", "add"),
+				hint("A", "apply all"), hint("D", "discard"), hint("e/E", "edit"),
+			}
+		default:
+			paneHints = []string{
+				hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
+				hint("D", "discard"), hint("e/E", "edit"),
+			}
 		}
+		paneHints = append(paneHints, hint("0-2", "panels"))
 	case PaneGitStatus:
 		paneHints = []string{
 			hint("space", "stage"), hint("a", "stage all"),
@@ -292,8 +307,8 @@ func (m Model) renderHelp() string {
     shift+tab   Previous panel
 
   File Actions
-    space       Add file (chezmoi add)
-    a           Apply file (chezmoi apply)
+    space       Add file (dest → source)
+    a           Apply file (source → dest)
     A           Apply all files
     D           Discard drift (revert change)
     e           Edit source (chezmoi edit)

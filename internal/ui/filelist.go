@@ -16,16 +16,31 @@ const (
 	DriftDestEdited             // destination changed directly → suggest add
 )
 
+// sortOrder returns the group priority for sorting: dest-edited first,
+// then source-edited, then synced.
+func (d DriftKind) sortOrder() int {
+	switch d {
+	case DriftDestEdited:
+		return 0
+	case DriftSourceEdited:
+		return 1
+	default:
+		return 2
+	}
+}
+
 type FileItem struct {
 	Path          string
 	SourceRelPath string
 	SourceState   rune // 'M', 'A', 'D', ' '
 	DestState     rune
 	Drift         DriftKind
+	IsHeading     bool
+	HeadingText   string
 }
 
 func (f FileItem) HasDrift() bool {
-	return f.SourceState != ' ' || f.DestState != ' '
+	return !f.IsHeading && (f.SourceState != ' ' || f.DestState != ' ')
 }
 
 type FileListModel struct {
@@ -42,11 +57,12 @@ func NewFileListModel() FileListModel {
 }
 
 func (m *FileListModel) SetFiles(files []FileItem) {
-	m.files = files
+	m.files = insertHeadings(files)
 	// Clamp cursor if file list shrunk
 	if m.cursor >= len(m.files) {
 		m.cursor = max(0, len(m.files)-1)
 	}
+	m.snapCursorToFile()
 	m.clampOffset()
 }
 
@@ -61,25 +77,31 @@ func (m *FileListModel) SetFocused(focused bool) {
 }
 
 func (m FileListModel) SelectedPath() string {
-	if len(m.files) == 0 {
+	if len(m.files) == 0 || m.files[m.cursor].IsHeading {
 		return ""
 	}
 	return m.files[m.cursor].Path
 }
 
 func (m FileListModel) SelectedItem() *FileItem {
-	if len(m.files) == 0 || m.cursor >= len(m.files) {
+	if len(m.files) == 0 || m.cursor >= len(m.files) || m.files[m.cursor].IsHeading {
 		return nil
 	}
 	return &m.files[m.cursor]
 }
 
 func (m FileListModel) FileCount() int {
-	return len(m.files)
+	count := 0
+	for _, f := range m.files {
+		if !f.IsHeading {
+			count++
+		}
+	}
+	return count
 }
 
 // ContentLines returns the number of lines the file list content needs
-// (not counting borders or title).
+// (not counting borders or title). Includes heading lines.
 func (m FileListModel) ContentLines() int {
 	return len(m.files)
 }
@@ -87,40 +109,81 @@ func (m FileListModel) ContentLines() int {
 func (m FileListModel) DriftCount() int {
 	count := 0
 	for _, f := range m.files {
-		if f.HasDrift() {
+		if !f.IsHeading && f.HasDrift() {
 			count++
 		}
 	}
 	return count
 }
 
-// MoveUp moves cursor up, clamping at top.
+// MoveUp moves cursor up, skipping headings.
 func (m *FileListModel) MoveUp() {
-	if m.cursor > 0 {
-		m.cursor--
-		m.clampOffset()
+	for i := m.cursor - 1; i >= 0; i-- {
+		if !m.files[i].IsHeading {
+			m.cursor = i
+			m.clampOffset()
+			return
+		}
 	}
 }
 
-// MoveDown moves cursor down, clamping at bottom.
+// MoveDown moves cursor down, skipping headings.
 func (m *FileListModel) MoveDown() {
-	if m.cursor < len(m.files)-1 {
-		m.cursor++
-		m.clampOffset()
+	for i := m.cursor + 1; i < len(m.files); i++ {
+		if !m.files[i].IsHeading {
+			m.cursor = i
+			m.clampOffset()
+			return
+		}
 	}
 }
 
-// GoToTop jumps cursor to first item.
+// GoToTop jumps cursor to first non-heading item.
 func (m *FileListModel) GoToTop() {
 	m.cursor = 0
+	m.skipForward()
 	m.clampOffset()
 }
 
-// GoToBottom jumps cursor to last item.
+// GoToBottom jumps cursor to last non-heading item.
 func (m *FileListModel) GoToBottom() {
 	if len(m.files) > 0 {
 		m.cursor = len(m.files) - 1
+		m.skipBackward()
 		m.clampOffset()
+	}
+}
+
+// snapCursorToFile ensures cursor is on a file, not a heading.
+func (m *FileListModel) snapCursorToFile() {
+	if len(m.files) == 0 {
+		return
+	}
+	if !m.files[m.cursor].IsHeading {
+		return
+	}
+	// Try forward first, then backward
+	saved := m.cursor
+	m.skipForward()
+	if m.cursor < len(m.files) && !m.files[m.cursor].IsHeading {
+		return
+	}
+	m.cursor = saved
+	m.skipBackward()
+}
+
+func (m *FileListModel) skipForward() {
+	for m.cursor < len(m.files) && m.files[m.cursor].IsHeading {
+		m.cursor++
+	}
+	if m.cursor >= len(m.files) && len(m.files) > 0 {
+		m.cursor = len(m.files) - 1
+	}
+}
+
+func (m *FileListModel) skipBackward() {
+	for m.cursor > 0 && m.files[m.cursor].IsHeading {
+		m.cursor--
 	}
 }
 
@@ -159,6 +222,12 @@ func (m FileListModel) View() string {
 	var lines []string
 	for i := m.offset; i < end; i++ {
 		f := m.files[i]
+
+		if f.IsHeading {
+			lines = append(lines, renderHeadingLine(f.HeadingText, m.width))
+			continue
+		}
+
 		selected := i == m.cursor && m.focused
 
 		// Determine indicator style — when selected, merge with selection background
@@ -253,14 +322,63 @@ func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.Status
 		}
 	}
 
-	// Sort: drifted files first, then alphabetical
+	// Sort: dest-edited first, then source-edited, then synced; alphabetical within each group
 	sort.SliceStable(items, func(i, j int) bool {
-		di, dj := items[i].HasDrift(), items[j].HasDrift()
-		if di != dj {
-			return di
+		oi, oj := items[i].Drift.sortOrder(), items[j].Drift.sortOrder()
+		if oi != oj {
+			return oi < oj
 		}
 		return items[i].Path < items[j].Path
 	})
 
 	return items
+}
+
+// insertHeadings adds section heading entries at group boundaries.
+// Only inserts headings when at least one file has drift.
+func insertHeadings(files []FileItem) []FileItem {
+	hasDrift := false
+	for _, f := range files {
+		if f.HasDrift() {
+			hasDrift = true
+			break
+		}
+	}
+	if !hasDrift {
+		return files
+	}
+
+	result := make([]FileItem, 0, len(files)+3)
+	lastOrder := -1
+	for _, f := range files {
+		order := f.Drift.sortOrder()
+		if order != lastOrder {
+			result = append(result, FileItem{
+				IsHeading:   true,
+				HeadingText: headingText(f.Drift),
+			})
+			lastOrder = order
+		}
+		result = append(result, f)
+	}
+	return result
+}
+
+func headingText(d DriftKind) string {
+	switch d {
+	case DriftDestEdited:
+		return "dest edited · space to add"
+	case DriftSourceEdited:
+		return "source edited · a to apply"
+	default:
+		return "synced"
+	}
+}
+
+func renderHeadingLine(text string, width int) string {
+	prefix := "── "
+	suffix := " "
+	inner := prefix + text + suffix
+	fill := max(0, width-lipgloss.Width(inner))
+	return lipgloss.NewStyle().Foreground(MutedColor).Render(inner + strings.Repeat("─", fill))
 }

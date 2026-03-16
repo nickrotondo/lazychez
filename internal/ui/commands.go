@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,11 +29,14 @@ func fetchStatus(r chezmoi.Runner) tea.Cmd {
 	}
 }
 
-func fetchDiff(r chezmoi.Runner, path string) tea.Cmd {
+func fetchDiff(r chezmoi.Runner, path string, reverse bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		diff, err := r.Diff(ctx, path)
+		if err == nil && reverse {
+			diff = reverseDiff(diff)
+		}
 		return DiffMsg{Path: path, Diff: diff, Err: err}
 	}
 }
@@ -147,6 +151,37 @@ func cleanFile(r git.Runner, path string) tea.Cmd {
 		err := r.Clean(ctx, path)
 		return GitDiscardResultMsg{Path: path, Err: err}
 	}
+}
+
+// reverseDiff swaps +/- in a unified diff so additions become removals and
+// vice versa. Used to show dest-edited diffs from the user's perspective
+// (what "add" would capture) instead of chezmoi's default (what "apply" would do).
+func reverseDiff(diff string) string {
+	var b strings.Builder
+	b.Grow(len(diff))
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "--- "):
+			b.WriteString("+++ " + line[4:])
+		case strings.HasPrefix(line, "+++ "):
+			b.WriteString("--- " + line[4:])
+		case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+			b.WriteString("+" + line[1:])
+		case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+			b.WriteString("-" + line[1:])
+		default:
+			b.WriteString(line)
+		}
+		b.WriteString("\n")
+	}
+	// Trim trailing extra newline from Split
+	result := b.String()
+	if strings.HasSuffix(diff, "\n") {
+		result = strings.TrimRight(result, "\n") + "\n"
+	} else {
+		result = strings.TrimRight(result, "\n")
+	}
+	return result
 }
 
 func clearStatusAfter() tea.Cmd {

@@ -393,7 +393,9 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.diffView.SetContent(newPath, diff)
 			return m, nil
 		}
-		return m, fetchDiff(m.chezmoi, newPath)
+		sel := m.fileList.SelectedItem()
+		reverse := sel != nil && sel.Drift == DriftDestEdited
+		return m, fetchDiff(m.chezmoi, newPath, reverse)
 	}
 
 	return m, nil
@@ -527,7 +529,9 @@ func (m *Model) fetchDiffForSelected() tea.Cmd {
 		m.diffView.SetContent(path, diff)
 		return nil
 	}
-	return fetchDiff(m.chezmoi, path)
+	sel := m.fileList.SelectedItem()
+	reverse := sel != nil && sel.Drift == DriftDestEdited
+	return fetchDiff(m.chezmoi, path, reverse)
 }
 
 func (m Model) fetchGitDiffForSelected() tea.Cmd {
