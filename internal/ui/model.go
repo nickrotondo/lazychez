@@ -224,9 +224,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EditorFinishedMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Editor error: %v", msg.Err), true)
-			return m, clearStatusAfter()
+		} else {
+			m.setStatus("Done", false)
 		}
-		return m, m.refreshAll()
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
 	case ClearStatusMsg:
 		m.statusMsg = ""
@@ -314,6 +315,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = OverlayHelp
 		return m, nil
 	case "C":
+		m.setStatus("Waiting for edit...", false)
 		return m, chezmoiEditConfig()
 	}
 
@@ -365,6 +367,7 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus(fmt.Sprintf("Error: %v", err), true)
 				return m, clearStatusAfter()
 			}
+			m.setStatus("Waiting for edit...", false)
 			return m, chezmoiEdit(filepath.Join(homeDir, path))
 		}
 	case "E":
@@ -375,6 +378,7 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.setStatus(fmt.Sprintf("Error: %v", err), true)
 				return m, clearStatusAfter()
 			}
+			m.setStatus("Waiting for edit...", false)
 			return m, openInEditor(filepath.Join(homeDir, path))
 		}
 	case "D":
@@ -419,8 +423,10 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commitInput.Focus()
 		return m, textinput.Blink
 	case "p":
+		m.setStatus("Pulling...", false)
 		return m, pullFromRemote(m.git)
 	case "P":
+		m.setStatus("Pushing...", false)
 		return m, pushToRemote(m.git)
 	case " ":
 		if entry, ok := m.gitStatus.SelectedEntry(); ok {

@@ -151,6 +151,11 @@ func (c *CLI) run(ctx context.Context, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", c.sourceDir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return string(out), fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
+		}
+	}
 	return string(out), err
 }
 

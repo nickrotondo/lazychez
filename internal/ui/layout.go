@@ -241,7 +241,7 @@ func (m Model) renderStatusBar() string {
 	if m.statusError {
 		style = StatusBarError
 	}
-	return " " + style.Render(m.statusMsg)
+	return style.Width(m.width).Render(m.statusMsg)
 }
 
 func (m Model) renderFooter() string {
