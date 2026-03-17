@@ -21,6 +21,7 @@ lazychez
 
 # Claude
 .claude/
+CLAUDE.md
 
 # mise
 .mise.toml

@@ -1,0 +1,74 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    # Bug detection
+    - errcheck        # Unchecked errors
+    - govet           # Suspicious constructs (printf args, struct tags, etc.)
+    - staticcheck     # Advanced static analysis
+    - ineffassign     # Useless assignments
+    - bodyclose       # Unclosed HTTP response bodies
+    - nilerr          # Returning nil after checking err != nil
+
+    # Style & consistency
+    - misspell        # Spelling mistakes in comments/strings
+    - unconvert       # Unnecessary type conversions
+    - unparam         # Unused function parameters
+    - whitespace      # Unnecessary leading/trailing blank lines in functions
+    - wastedassign    # Wasted assignments
+    - predeclared     # Shadowing predeclared identifiers (e.g., len, error)
+
+    # Code quality
+    - gocritic        # Opinionated but useful style/performance checks
+    - revive          # Configurable successor to golint
+    - gosec           # Security issues
+    - prealloc        # Slice preallocation suggestions
+
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+      disabled-checks:
+        - evalOrder       # `return m, m.cmd()` is idiomatic Bubbletea
+
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: exported
+          disabled: true  # Not a library — doc comments on every export are noise
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: unexported-return
+        - name: var-naming
+
+    misspell:
+      locale: US
+
+    gosec:
+      excludes:
+        - G204  # Subprocess launched with variable — expected for git/chezmoi CLI calls
+
+  exclusions:
+    rules:
+      # Test files get more leeway
+      - path: _test\.go
+        linters:
+          - gosec
+          - unparam
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
