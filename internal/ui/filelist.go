@@ -282,11 +282,44 @@ func (m FileListModel) View() string {
 			indicatorStr = "  "
 		}
 
-		text := f.Path
-		// Pad to full width
 		visIndicator := lipgloss.Width(indicatorStr)
-		if pad := m.width - visIndicator - len(text); pad > 0 {
-			text += strings.Repeat(" ", pad)
+		pathMax := m.width - visIndicator
+
+		var text string
+		if pathMax <= 0 {
+			text = ""
+		} else if len(f.Path) <= pathMax {
+			text = f.Path
+			if pad := pathMax - len(text); pad > 0 {
+				text += strings.Repeat(" ", pad)
+			}
+		} else if m.focused {
+			indentStr := strings.Repeat(" ", visIndicator)
+			var b strings.Builder
+			remaining := f.Path
+			first := true
+			for len(remaining) > 0 {
+				n := min(len(remaining), pathMax)
+				chunk := remaining[:n]
+				remaining = remaining[n:]
+				if first {
+					b.WriteString(chunk)
+					first = false
+				} else {
+					b.WriteString("\n" + indentStr + chunk)
+				}
+				if pad := pathMax - len(chunk); pad > 0 {
+					b.WriteString(strings.Repeat(" ", pad))
+				}
+			}
+			text = b.String()
+		} else {
+			if pathMax > 1 {
+				text = f.Path[:pathMax-1] + "…"
+			}
+			if pad := pathMax - len(text); pad > 0 {
+				text += strings.Repeat(" ", pad)
+			}
 		}
 
 		if selected {

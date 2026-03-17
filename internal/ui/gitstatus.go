@@ -137,16 +137,51 @@ func (m GitStatusModel) View() string {
 
 		xyStr := colorizeXY(e.XY, selected)
 
-		text := " " + e.Path
 		xyWidth := lipgloss.Width(xyStr)
-		if pad := m.width - xyWidth - lipgloss.Width(text); pad > 0 {
-			text += strings.Repeat(" ", pad)
-		}
-
 		pathStyle := filePathStyle(e.XY)
 		if selected {
 			pathStyle = pathStyle.Background(SelectedBg).Bold(true)
 		}
+
+		pathMax := m.width - xyWidth - 1
+		if pathMax <= 0 {
+			lines = append(lines, xyStr+pathStyle.Render(""))
+			continue
+		}
+
+		var text string
+		if len(e.Path) <= pathMax {
+			text = " " + e.Path
+			if pad := m.width - xyWidth - len(text); pad > 0 {
+				text += strings.Repeat(" ", pad)
+			}
+		} else if m.focused {
+			indentStr := strings.Repeat(" ", xyWidth+1)
+			var b strings.Builder
+			remaining := e.Path
+			first := true
+			for len(remaining) > 0 {
+				n := min(len(remaining), pathMax)
+				chunk := remaining[:n]
+				remaining = remaining[n:]
+				if first {
+					b.WriteString(" " + chunk)
+					first = false
+				} else {
+					b.WriteString("\n" + indentStr + chunk)
+				}
+				if pad := pathMax - len(chunk); pad > 0 {
+					b.WriteString(strings.Repeat(" ", pad))
+				}
+			}
+			text = b.String()
+		} else {
+			text = " " + e.Path[:pathMax-1] + "…"
+			if pad := m.width - xyWidth - lipgloss.Width(text); pad > 0 {
+				text += strings.Repeat(" ", pad)
+			}
+		}
+
 		lines = append(lines, xyStr+pathStyle.Render(text))
 	}
 
