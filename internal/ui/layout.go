@@ -47,6 +47,8 @@ func (m Model) View() string {
 		screen = m.renderOverlay(screen, m.renderConfirmApplyAll())
 	case OverlayConfirmGitDiscard:
 		screen = m.renderOverlay(screen, m.renderConfirmGitDiscard())
+	case OverlayConfirmForget:
+		screen = m.renderOverlay(screen, m.renderConfirmForget())
 	}
 
 	return screen
@@ -313,17 +315,17 @@ func (m Model) renderFooter() string {
 		case sel != nil && sel.Drift == DriftDestEdited:
 			paneHints = []string{
 				hint("space", "add (dest → source)"), hint("a", "apply"),
-				hint("A", "apply all"), hint("D", "discard"), hint("e/E", "edit"),
+				hint("A", "apply all"), hint("D", "discard"), hint("x", "forget"), hint("e/E", "edit"),
 			}
 		case sel != nil && sel.Drift == DriftSourceEdited:
 			paneHints = []string{
 				hint("a", "apply (source → dest)"), hint("space", "add"),
-				hint("A", "apply all"), hint("D", "discard"), hint("e/E", "edit"),
+				hint("A", "apply all"), hint("D", "discard"), hint("x", "forget"), hint("e/E", "edit"),
 			}
 		default:
 			paneHints = []string{
 				hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
-				hint("D", "discard"), hint("e/E", "edit"),
+				hint("D", "discard"), hint("x", "forget"), hint("e/E", "edit"),
 			}
 		}
 		paneHints = append(paneHints, hint("0-2", "panels"))
@@ -388,6 +390,7 @@ func (m Model) renderHelp() string {
     D           Discard drift (revert change)
     e           Edit source (chezmoi edit)
     E           Edit destination file
+    x           Forget file (unmanage)
 
   Git Actions
     space       Stage file (git add)
@@ -421,6 +424,16 @@ func (m Model) renderConfirmApplyAll() string {
 		"%s\n\n%s\n\n%s",
 		PaneTitle.Render("Confirm Apply All"),
 		"Apply all managed files to destination?",
+		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
+	)
+	return OverlayStyle.Render(content)
+}
+
+func (m Model) renderConfirmForget() string {
+	content := fmt.Sprintf(
+		"%s\n\n%s\n\n%s",
+		PaneTitle.Render("Confirm Forget"),
+		fmt.Sprintf("Remove %s from chezmoi management?", m.forgetPath),
 		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
 	)
 	return OverlayStyle.Render(content)

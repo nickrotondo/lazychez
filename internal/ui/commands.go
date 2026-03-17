@@ -59,6 +59,15 @@ func addFile(r chezmoi.Runner, path string) tea.Cmd {
 	}
 }
 
+func forgetFile(r chezmoi.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.Forget(ctx, path)
+		return ForgetResultMsg{Path: path, Err: err}
+	}
+}
+
 func applyFile(r chezmoi.Runner, path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -30,6 +30,7 @@ const (
 	OverlayCommit
 	OverlayConfirmApplyAll
 	OverlayConfirmGitDiscard
+	OverlayConfirmForget
 )
 
 // narrowBreakpoint is the width below which we switch to stacked layout.
@@ -50,6 +51,7 @@ type Model struct {
 	commitInput      textinput.Model
 	discardPath      string
 	discardUntracked bool
+	forgetPath       string
 
 	// Status bar
 	statusMsg   string
@@ -166,6 +168,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
+	case ForgetResultMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Error forgetting %s: %v", msg.Path, msg.Err), true)
+		} else {
+			m.setStatus(fmt.Sprintf("Forgot %s", msg.Path), false)
+		}
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
+
 	case ApplyAllResultMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Error applying all: %v", msg.Err), true)
@@ -267,6 +277,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y":
 			m.overlay = OverlayNone
 			return m, applyAll(m.chezmoi)
+		case "n", "esc":
+			m.overlay = OverlayNone
+		}
+		return m, nil
+
+	case OverlayConfirmForget:
+		switch msg.String() {
+		case "y":
+			m.overlay = OverlayNone
+			return m, forgetFile(m.chezmoi, m.forgetPath)
 		case "n", "esc":
 			m.overlay = OverlayNone
 		}
@@ -387,6 +407,13 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus("Waiting for edit...", false)
 			return m, openInEditor(filepath.Join(homeDir, path))
 		}
+	case "x":
+		path := m.fileList.SelectedPath()
+		if path != "" {
+			m.forgetPath = path
+			m.overlay = OverlayConfirmForget
+		}
+		return m, nil
 	case "D":
 		if sel := m.fileList.SelectedItem(); sel != nil && sel.HasDrift() {
 			switch sel.Drift {

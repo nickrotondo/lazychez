@@ -29,15 +29,15 @@ This slice cuts through every layer end-to-end: Runner interface addition, CLI i
 
 ### Acceptance criteria
 
-- [ ] `Forget(ctx, path)` added to `chezmoi.Runner` interface and CLI implementation
-- [ ] `x` keypress in file list pane opens `OverlayConfirmForget` showing the file name
-- [ ] `y` confirms and calls `chezmoi forget` with the correct full path
-- [ ] `n` / `esc` cancels without calling forget
-- [ ] Status bar shows success or error after forget completes
-- [ ] All panes refresh after successful forget (file disappears from managed list)
-- [ ] Help overlay updated with `x` keybinding under File Actions
-- [ ] Mock runner updated with `Forget` support (call tracking, error injection)
-- [ ] Tests cover: confirm flow, cancel flow, error handling, refresh after forget
+- [x] `Forget(ctx, path)` added to `chezmoi.Runner` interface and CLI implementation
+- [x] `x` keypress in file list pane opens `OverlayConfirmForget` showing the file name
+- [x] `y` confirms and calls `chezmoi forget` with the correct full path
+- [x] `n` / `esc` cancels without calling forget
+- [x] Status bar shows success or error after forget completes
+- [x] All panes refresh after successful forget (file disappears from managed list)
+- [x] Help overlay updated with `x` keybinding under File Actions
+- [x] Mock runner updated with `Forget` support (call tracking, error injection)
+- [x] Tests cover: confirm flow, cancel flow, error handling, refresh after forget
 
 ---
 
@@ -50,6 +50,8 @@ This slice cuts through every layer end-to-end: Runner interface addition, CLI i
 A fuzzy-filterable overlay for discovering and adding unmanaged files. When the user presses `+` in the file list pane, lazychez fetches `chezmoi unmanaged` and displays the results in a `bubbles/list`-based overlay with built-in fuzzy filtering. The user can type to filter, navigate with j/k, and press Enter to add the selected file via `chezmoi add`. Esc closes the overlay.
 
 This slice introduces the `AddFileModel` component, the `bubbles/list` dependency, and the `Unmanaged` Runner method. Single-select only — multi-select comes in Phase 3.
+
+**Note:** `chezmoi add` prompts interactively by default. Use `--force` to skip the CLI confirmation, since the TUI already handles user intent (same lesson from Phase 1's `chezmoi forget --force`).
 
 ### Acceptance criteria
 

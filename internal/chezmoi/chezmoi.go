@@ -28,6 +28,7 @@ type Runner interface {
 	Add(ctx context.Context, path string) error
 	Apply(ctx context.Context, path string) error
 	ApplyAll(ctx context.Context) error
+	Forget(ctx context.Context, path string) error
 	SourcePath() string
 }
 
@@ -208,6 +209,15 @@ func (c *CLI) patchTemplate(ctx context.Context, path, destPath, srcTemplatePath
 		return fmt.Errorf("write source template: %w", err)
 	}
 
+	return nil
+}
+
+func (c *CLI) Forget(ctx context.Context, path string) error {
+	fullPath := filepath.Join(c.homeDir, path)
+	_, err := c.run(ctx, "forget", "--force", fullPath)
+	if err != nil {
+		return fmt.Errorf("chezmoi forget %s: %w", path, err)
+	}
 	return nil
 }
 

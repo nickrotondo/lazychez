@@ -299,6 +299,38 @@ func TestUpdate_GitDiscardResultMsg(t *testing.T) {
 	})
 }
 
+func TestUpdate_ForgetResultMsg(t *testing.T) {
+	t.Run("success shows status and refreshes", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		result, cmd := m.Update(ForgetResultMsg{Path: ".zshrc"})
+		m = result.(Model)
+		if !strings.Contains(m.statusMsg, "Forgot .zshrc") {
+			t.Errorf("statusMsg = %q, want to contain 'Forgot .zshrc'", m.statusMsg)
+		}
+		if m.statusError {
+			t.Error("statusError should be false")
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+
+	t.Run("error shows error status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		result, cmd := m.Update(ForgetResultMsg{Path: ".zshrc", Err: fmt.Errorf("forget failed")})
+		m = result.(Model)
+		if !m.statusError {
+			t.Error("statusError should be true")
+		}
+		if !strings.Contains(m.statusMsg, "Error forgetting .zshrc") {
+			t.Errorf("statusMsg = %q", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+}
+
 func TestUpdate_GitStageResultMsg(t *testing.T) {
 	t.Run("single file success", func(t *testing.T) {
 		m, _, _ := newTestModel()
@@ -654,6 +686,56 @@ func TestHandleKey_OverlayConfirmGitDiscard(t *testing.T) {
 	})
 }
 
+func TestHandleKey_OverlayConfirmForget(t *testing.T) {
+	setup := func() (Model, *mockChezmoiRunner) {
+		m, cm, _ := newTestModel()
+		m.overlay = OverlayConfirmForget
+		m.forgetPath = ".zshrc"
+		return m, cm
+	}
+
+	t.Run("y confirms forget", func(t *testing.T) {
+		m, _ := setup()
+		m, cmd := sendKey(m, "y")
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd == nil {
+			t.Fatal("cmd should not be nil")
+		}
+		msg := cmd()
+		result, ok := msg.(ForgetResultMsg)
+		if !ok {
+			t.Fatalf("cmd() returned %T, want ForgetResultMsg", msg)
+		}
+		if result.Path != ".zshrc" {
+			t.Errorf("result.Path = %q, want .zshrc", result.Path)
+		}
+	})
+
+	t.Run("n cancels", func(t *testing.T) {
+		m, _ := setup()
+		m, cmd := sendKey(m, "n")
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd != nil {
+			t.Error("cmd should be nil (no forget)")
+		}
+	})
+
+	t.Run("esc cancels", func(t *testing.T) {
+		m, _ := setup()
+		m, cmd := sendSpecialKey(m, tea.KeyEscape)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd != nil {
+			t.Error("cmd should be nil (no forget)")
+		}
+	})
+}
+
 // --- Pane key handling ---
 
 func TestHandleFileListKey(t *testing.T) {
@@ -763,6 +845,29 @@ func TestHandleFileListKey(t *testing.T) {
 		msg := cmd()
 		if _, ok := msg.(AddResultMsg); !ok {
 			t.Errorf("cmd() returned %T, want AddResultMsg", msg)
+		}
+	})
+
+	t.Run("x opens confirm forget overlay", func(t *testing.T) {
+		m, _ := setupWithFiles()
+		path := m.fileList.SelectedPath()
+		m, cmd := sendKey(m, "x")
+		if m.overlay != OverlayConfirmForget {
+			t.Errorf("overlay = %d, want OverlayConfirmForget", m.overlay)
+		}
+		if m.forgetPath != path {
+			t.Errorf("forgetPath = %q, want %q", m.forgetPath, path)
+		}
+		if cmd != nil {
+			t.Error("cmd should be nil (overlay opened, no command yet)")
+		}
+	})
+
+	t.Run("x with no files is no-op", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m, _ = sendKey(m, "x")
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
 		}
 	})
 
@@ -932,7 +1037,7 @@ func TestViewDoesNotPanic(t *testing.T) {
 
 	t.Run("with overlays", func(t *testing.T) {
 		m, _, _ := newTestModel()
-		overlays := []OverlayMode{OverlayHelp, OverlayCommit, OverlayConfirmApplyAll, OverlayConfirmGitDiscard}
+		overlays := []OverlayMode{OverlayHelp, OverlayCommit, OverlayConfirmApplyAll, OverlayConfirmGitDiscard, OverlayConfirmForget}
 		for _, o := range overlays {
 			m.overlay = o
 			_ = m.View() // Should not panic

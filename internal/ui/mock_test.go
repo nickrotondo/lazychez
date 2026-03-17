@@ -18,11 +18,13 @@ type mockChezmoiRunner struct {
 	addErr        map[string]error
 	applyErr      map[string]error
 	applyAllErr   error
+	forgetErr     map[string]error
 	sourcePath    string
 
 	addCalls       []string
 	applyCalls     []string
 	applyAllCalled bool
+	forgetCalls    []string
 }
 
 func newMockChezmoi() *mockChezmoiRunner {
@@ -31,6 +33,7 @@ func newMockChezmoi() *mockChezmoiRunner {
 		diffErr:    make(map[string]error),
 		addErr:     make(map[string]error),
 		applyErr:   make(map[string]error),
+		forgetErr:  make(map[string]error),
 		sourcePath: "/home/user/.local/share/chezmoi",
 	}
 }
@@ -60,6 +63,11 @@ func (m *mockChezmoiRunner) Apply(_ context.Context, path string) error {
 func (m *mockChezmoiRunner) ApplyAll(_ context.Context) error {
 	m.applyAllCalled = true
 	return m.applyAllErr
+}
+
+func (m *mockChezmoiRunner) Forget(_ context.Context, path string) error {
+	m.forgetCalls = append(m.forgetCalls, path)
+	return m.forgetErr[path]
 }
 
 func (m *mockChezmoiRunner) SourcePath() string {

@@ -36,6 +36,11 @@ type ApplyAllResultMsg struct {
 	Err error
 }
 
+type ForgetResultMsg struct {
+	Path string
+	Err  error
+}
+
 type GitStatusMsg struct {
 	Entries []GitStatusEntry
 	Err     error
