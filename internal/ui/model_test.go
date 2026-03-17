@@ -736,6 +736,173 @@ func TestHandleKey_OverlayConfirmForget(t *testing.T) {
 	})
 }
 
+func TestUpdate_UnmanagedMsg(t *testing.T) {
+	t.Run("success opens add file overlay", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := UnmanagedMsg{Files: []string{".config/new", ".profile"}}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		if m.overlay != OverlayAddFile {
+			t.Errorf("overlay = %d, want OverlayAddFile", m.overlay)
+		}
+	})
+
+	t.Run("empty list shows status, no overlay", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := UnmanagedMsg{Files: []string{}}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if m.statusMsg != "No unmanaged files" {
+			t.Errorf("statusMsg = %q, want 'No unmanaged files'", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatusAfter)")
+		}
+	})
+
+	t.Run("nil files shows status, no overlay", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := UnmanagedMsg{Files: nil}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+	})
+
+	t.Run("error sets error status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := UnmanagedMsg{Err: fmt.Errorf("unmanaged failed")}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !m.statusError {
+			t.Error("statusError should be true")
+		}
+		if !strings.Contains(m.statusMsg, "Error") {
+			t.Errorf("statusMsg = %q, want to contain 'Error'", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatusAfter)")
+		}
+	})
+}
+
+func TestUpdate_AddNewFileResultMsg(t *testing.T) {
+	t.Run("success shows status and refreshes", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AddNewFileResultMsg{Path: ".profile"}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !strings.Contains(m.statusMsg, "Added .profile") {
+			t.Errorf("statusMsg = %q, want to contain 'Added .profile'", m.statusMsg)
+		}
+		if m.statusError {
+			t.Error("statusError should be false")
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+
+	t.Run("error shows error status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AddNewFileResultMsg{Path: ".profile", Err: fmt.Errorf("add failed")}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !m.statusError {
+			t.Error("statusError should be true")
+		}
+		if !strings.Contains(m.statusMsg, "Error adding .profile") {
+			t.Errorf("statusMsg = %q", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+}
+
+func TestHandleKey_OverlayAddFile(t *testing.T) {
+	setup := func() Model {
+		m, _, _ := newTestModel()
+		m.addFile = NewAddFileModel([]string{".config/new", ".profile", ".local/share/app"}, 50, 15)
+		m.overlay = OverlayAddFile
+		return m
+	}
+
+	t.Run("esc closes overlay when not filtering", func(t *testing.T) {
+		m := setup()
+		m, cmd := sendSpecialKey(m, tea.KeyEscape)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd != nil {
+			t.Error("cmd should be nil")
+		}
+	})
+
+	t.Run("enter adds selected file", func(t *testing.T) {
+		m := setup()
+		m, cmd := sendSpecialKey(m, tea.KeyEnter)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd == nil {
+			t.Fatal("cmd should not be nil")
+		}
+		msg := cmd()
+		result, ok := msg.(AddNewFileResultMsg)
+		if !ok {
+			t.Fatalf("cmd() returned %T, want AddNewFileResultMsg", msg)
+		}
+		if result.Path != ".config/new" {
+			t.Errorf("result.Path = %q, want .config/new", result.Path)
+		}
+	})
+
+	t.Run("enter with no items is no-op", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.addFile = NewAddFileModel([]string{}, 50, 15)
+		m.overlay = OverlayAddFile
+		m, cmd := sendSpecialKey(m, tea.KeyEnter)
+		if m.overlay != OverlayAddFile {
+			t.Errorf("overlay = %d, want OverlayAddFile (unchanged)", m.overlay)
+		}
+		if cmd != nil {
+			t.Error("cmd should be nil (no item selected)")
+		}
+	})
+
+	t.Run("arrow keys navigate the list", func(t *testing.T) {
+		m := setup()
+		first := m.addFile.SelectedPath()
+		m, _ = sendSpecialKey(m, tea.KeyDown)
+		second := m.addFile.SelectedPath()
+		if first == second {
+			t.Error("cursor should have moved down")
+		}
+		m, _ = sendSpecialKey(m, tea.KeyUp)
+		third := m.addFile.SelectedPath()
+		if third != first {
+			t.Errorf("after up: path = %q, want %q (back to first)", third, first)
+		}
+	})
+
+	t.Run("typing filters the list", func(t *testing.T) {
+		m := setup()
+		// Type "profile" to filter — filter is auto-focused
+		for _, r := range "profile" {
+			m, _ = sendKey(m, string(r))
+		}
+		path := m.addFile.SelectedPath()
+		if path != ".profile" {
+			t.Errorf("after filtering: selected = %q, want .profile", path)
+		}
+	})
+}
+
 // --- Pane key handling ---
 
 func TestHandleFileListKey(t *testing.T) {
@@ -860,6 +1027,21 @@ func TestHandleFileListKey(t *testing.T) {
 		}
 		if cmd != nil {
 			t.Error("cmd should be nil (overlay opened, no command yet)")
+		}
+	})
+
+	t.Run("+ triggers fetchUnmanaged", func(t *testing.T) {
+		m, _ := setupWithFiles()
+		m, cmd := sendKey(m, "+")
+		if cmd == nil {
+			t.Fatal("cmd should not be nil (fetchUnmanaged)")
+		}
+		if m.statusMsg != "Loading unmanaged files..." {
+			t.Errorf("statusMsg = %q, want loading message", m.statusMsg)
+		}
+		msg := cmd()
+		if _, ok := msg.(UnmanagedMsg); !ok {
+			t.Errorf("cmd() returned %T, want UnmanagedMsg", msg)
 		}
 	})
 
@@ -1042,6 +1224,20 @@ func TestViewDoesNotPanic(t *testing.T) {
 			m.overlay = o
 			_ = m.View() // Should not panic
 		}
+	})
+
+	t.Run("with add file overlay", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.addFile = NewAddFileModel([]string{".config/new", ".profile"}, 50, 15)
+		m.overlay = OverlayAddFile
+		_ = m.View() // Should not panic
+	})
+
+	t.Run("with empty add file overlay", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.addFile = NewAddFileModel([]string{}, 50, 15)
+		m.overlay = OverlayAddFile
+		_ = m.View() // Should not panic
 	})
 
 	t.Run("narrow mode", func(t *testing.T) {

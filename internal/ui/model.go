@@ -31,6 +31,7 @@ const (
 	OverlayConfirmApplyAll
 	OverlayConfirmGitDiscard
 	OverlayConfirmForget
+	OverlayAddFile
 )
 
 // narrowBreakpoint is the width below which we switch to stacked layout.
@@ -52,6 +53,7 @@ type Model struct {
 	discardPath      string
 	discardUntracked bool
 	forgetPath       string
+	addFile          AddFileModel
 
 	// Status bar
 	statusMsg   string
@@ -176,6 +178,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
+	case UnmanagedMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Error: %v", msg.Err), true)
+			return m, clearStatusAfter()
+		}
+		if len(msg.Files) == 0 {
+			m.setStatus("No unmanaged files", false)
+			return m, clearStatusAfter()
+		}
+		m.statusMsg = ""
+		w := min(100, max(40, m.width*80/100))
+		h := min(30, max(10, m.height*70/100))
+		// Subtract OverlayStyle horizontal padding (2 left + 2 right)
+		m.addFile = NewAddFileModel(msg.Files, w-4, h)
+		m.overlay = OverlayAddFile
+		return m, nil
+
+	case AddNewFileResultMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Error adding %s: %v", msg.Path, msg.Err), true)
+		} else {
+			m.setStatus(fmt.Sprintf("Added %s", msg.Path), false)
+		}
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
+
 	case ApplyAllResultMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Error applying all: %v", msg.Err), true)
@@ -292,6 +319,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case OverlayAddFile:
+		return m.handleAddFileKey(msg)
+
 	case OverlayConfirmGitDiscard:
 		switch msg.String() {
 		case "y":
@@ -407,6 +437,9 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus("Waiting for edit...", false)
 			return m, openInEditor(filepath.Join(homeDir, path))
 		}
+	case "+":
+		m.setStatus("Loading unmanaged files...", false)
+		return m, fetchUnmanaged(m.chezmoi)
 	case "x":
 		path := m.fileList.SelectedPath()
 		if path != "" {
@@ -504,6 +537,25 @@ func (m Model) handleCommitKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.commitInput, cmd = m.commitInput.Update(msg)
+	return m, cmd
+}
+
+func (m Model) handleAddFileKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.overlay = OverlayNone
+		return m, nil
+	case "enter":
+		path := m.addFile.SelectedPath()
+		if path != "" {
+			m.overlay = OverlayNone
+			return m, addNewFile(m.chezmoi, path)
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.addFile, cmd = m.addFile.Update(msg)
 	return m, cmd
 }
 

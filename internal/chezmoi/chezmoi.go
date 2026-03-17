@@ -23,9 +23,11 @@ type StatusEntry struct {
 
 type Runner interface {
 	Managed(ctx context.Context) ([]ManagedFile, error)
+	Unmanaged(ctx context.Context) ([]string, error)
 	Status(ctx context.Context) ([]StatusEntry, error)
 	Diff(ctx context.Context, path string) (string, error)
 	Add(ctx context.Context, path string) error
+	AddNew(ctx context.Context, path string) error
 	Apply(ctx context.Context, path string) error
 	ApplyAll(ctx context.Context) error
 	Forget(ctx context.Context, path string) error
@@ -84,6 +86,14 @@ func (c *CLI) Managed(ctx context.Context) ([]ManagedFile, error) {
 		files = append(files, f)
 	}
 	return files, nil
+}
+
+func (c *CLI) Unmanaged(ctx context.Context) ([]string, error) {
+	out, err := c.run(ctx, "unmanaged")
+	if err != nil {
+		return nil, fmt.Errorf("chezmoi unmanaged: %w", err)
+	}
+	return splitLines(out), nil
 }
 
 func (c *CLI) Status(ctx context.Context) ([]StatusEntry, error) {
@@ -209,6 +219,15 @@ func (c *CLI) patchTemplate(ctx context.Context, path, destPath, srcTemplatePath
 		return fmt.Errorf("write source template: %w", err)
 	}
 
+	return nil
+}
+
+func (c *CLI) AddNew(ctx context.Context, path string) error {
+	fullPath := filepath.Join(c.homeDir, path)
+	_, err := c.run(ctx, "add", "--force", fullPath)
+	if err != nil {
+		return fmt.Errorf("chezmoi add %s: %w", path, err)
+	}
 	return nil
 }
 

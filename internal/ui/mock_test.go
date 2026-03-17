@@ -9,19 +9,23 @@ import (
 
 // mockChezmoiRunner implements chezmoi.Runner for testing.
 type mockChezmoiRunner struct {
-	managedFiles  []chezmoi.ManagedFile
-	managedErr    error
-	statusEntries []chezmoi.StatusEntry
-	statusErr     error
-	diffOutput    map[string]string
-	diffErr       map[string]error
-	addErr        map[string]error
-	applyErr      map[string]error
-	applyAllErr   error
-	forgetErr     map[string]error
-	sourcePath    string
+	managedFiles    []chezmoi.ManagedFile
+	managedErr      error
+	unmanagedFiles  []string
+	unmanagedErr    error
+	statusEntries   []chezmoi.StatusEntry
+	statusErr       error
+	diffOutput      map[string]string
+	diffErr         map[string]error
+	addErr          map[string]error
+	addNewErr       map[string]error
+	applyErr        map[string]error
+	applyAllErr     error
+	forgetErr       map[string]error
+	sourcePath      string
 
 	addCalls       []string
+	addNewCalls    []string
 	applyCalls     []string
 	applyAllCalled bool
 	forgetCalls    []string
@@ -32,6 +36,7 @@ func newMockChezmoi() *mockChezmoiRunner {
 		diffOutput: make(map[string]string),
 		diffErr:    make(map[string]error),
 		addErr:     make(map[string]error),
+		addNewErr:  make(map[string]error),
 		applyErr:   make(map[string]error),
 		forgetErr:  make(map[string]error),
 		sourcePath: "/home/user/.local/share/chezmoi",
@@ -40,6 +45,10 @@ func newMockChezmoi() *mockChezmoiRunner {
 
 func (m *mockChezmoiRunner) Managed(_ context.Context) ([]chezmoi.ManagedFile, error) {
 	return m.managedFiles, m.managedErr
+}
+
+func (m *mockChezmoiRunner) Unmanaged(_ context.Context) ([]string, error) {
+	return m.unmanagedFiles, m.unmanagedErr
 }
 
 func (m *mockChezmoiRunner) Status(_ context.Context) ([]chezmoi.StatusEntry, error) {
@@ -53,6 +62,11 @@ func (m *mockChezmoiRunner) Diff(_ context.Context, path string) (string, error)
 func (m *mockChezmoiRunner) Add(_ context.Context, path string) error {
 	m.addCalls = append(m.addCalls, path)
 	return m.addErr[path]
+}
+
+func (m *mockChezmoiRunner) AddNew(_ context.Context, path string) error {
+	m.addNewCalls = append(m.addNewCalls, path)
+	return m.addNewErr[path]
 }
 
 func (m *mockChezmoiRunner) Apply(_ context.Context, path string) error {

@@ -55,18 +55,18 @@ This slice introduces the `AddFileModel` component, the `bubbles/list` dependenc
 
 ### Acceptance criteria
 
-- [ ] `Unmanaged(ctx)` added to `chezmoi.Runner` interface and CLI implementation
-- [ ] `+` keypress in file list pane triggers `fetchUnmanaged` and opens `OverlayAddFile`
-- [ ] Overlay displays unmanaged files using `bubbles/list` with fuzzy filtering
-- [ ] User can type to filter, navigate with j/k or arrow keys
-- [ ] Enter on a file runs `chezmoi add` for that path
-- [ ] Status bar shows success or error after add
-- [ ] All panes refresh after successful add (file appears in managed list and git status)
-- [ ] Esc closes overlay without adding anything
-- [ ] Empty unmanaged list shows an appropriate message
-- [ ] Help overlay updated with `+` keybinding under File Actions
-- [ ] Mock runner updated with `Unmanaged` support
-- [ ] Tests cover: overlay open/close, filtering, single add, error handling, empty list, refresh after add
+- [x] `Unmanaged(ctx)` added to `chezmoi.Runner` interface and CLI implementation
+- [x] `+` keypress in file list pane triggers `fetchUnmanaged` and opens `OverlayAddFile`
+- [x] Overlay displays unmanaged files using `bubbles/list` with fuzzy filtering
+- [x] User can type to filter, navigate with j/k or arrow keys
+- [x] Enter on a file runs `chezmoi add` for that path
+- [x] Status bar shows success or error after add
+- [x] All panes refresh after successful add (file appears in managed list and git status)
+- [x] Esc closes overlay without adding anything
+- [x] Empty unmanaged list shows an appropriate message
+- [x] Help overlay updated with `+` keybinding under File Actions
+- [x] Mock runner updated with `Unmanaged` support
+- [x] Tests cover: overlay open/close, filtering, single add, error handling, empty list, refresh after add
 
 ---
 

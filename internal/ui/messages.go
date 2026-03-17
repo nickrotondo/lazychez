@@ -41,6 +41,16 @@ type ForgetResultMsg struct {
 	Err  error
 }
 
+type UnmanagedMsg struct {
+	Files []string
+	Err   error
+}
+
+type AddNewFileResultMsg struct {
+	Path string
+	Err  error
+}
+
 type GitStatusMsg struct {
 	Entries []GitStatusEntry
 	Err     error

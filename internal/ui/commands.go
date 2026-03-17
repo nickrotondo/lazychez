@@ -59,6 +59,24 @@ func addFile(r chezmoi.Runner, path string) tea.Cmd {
 	}
 }
 
+func fetchUnmanaged(r chezmoi.Runner) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		files, err := r.Unmanaged(ctx)
+		return UnmanagedMsg{Files: files, Err: err}
+	}
+}
+
+func addNewFile(r chezmoi.Runner, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := r.AddNew(ctx, path)
+		return AddNewFileResultMsg{Path: path, Err: err}
+	}
+}
+
 func forgetFile(r chezmoi.Runner, path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
