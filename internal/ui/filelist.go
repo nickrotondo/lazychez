@@ -106,6 +106,26 @@ func (m FileListModel) ContentLines() int {
 	return len(m.files)
 }
 
+// ScrollState returns the scroll offset and total line count for scrollbar rendering.
+func (m FileListModel) ScrollState() (offset, total int) {
+	return m.offset, len(m.files)
+}
+
+// CursorPosition returns the 1-based index among non-heading items and the total count.
+func (m FileListModel) CursorPosition() (current, total int) {
+	pos := 0
+	for i, f := range m.files {
+		if f.IsHeading {
+			continue
+		}
+		pos++
+		if i == m.cursor {
+			current = pos
+		}
+	}
+	return current, pos
+}
+
 func (m FileListModel) DriftCount() int {
 	count := 0
 	for _, f := range m.files {

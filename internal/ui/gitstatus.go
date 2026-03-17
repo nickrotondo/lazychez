@@ -56,6 +56,20 @@ func (m GitStatusModel) SelectedEntry() (GitStatusEntry, bool) {
 	return m.entries[m.cursor], true
 }
 
+// ScrollState returns the scroll offset and total line count for scrollbar rendering.
+func (m GitStatusModel) ScrollState() (offset, total int) {
+	return m.offset, len(m.entries)
+}
+
+// CursorPosition returns the 1-based cursor index and total entry count.
+func (m GitStatusModel) CursorPosition() (current, total int) {
+	total = len(m.entries)
+	if total > 0 {
+		current = m.cursor + 1
+	}
+	return current, total
+}
+
 func (m GitStatusModel) EntryCount() int {
 	return len(m.entries)
 }

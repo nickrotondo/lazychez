@@ -46,6 +46,14 @@ func (m *DiffViewModel) SetFocused(focused bool) {
 	m.focused = focused
 }
 
+// ScrollState returns the scroll offset and total line count for scrollbar rendering.
+func (m DiffViewModel) ScrollState() (offset, total int) {
+	if !m.ready || m.rawDiff == "" {
+		return 0, 0
+	}
+	return m.viewport.YOffset, m.viewport.TotalLineCount()
+}
+
 func (m DiffViewModel) Path() string {
 	return m.path
 }
