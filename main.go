@@ -11,7 +11,14 @@ import (
 	"github.com/nickrotondo/lazychez/internal/ui"
 )
 
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("lazychez " + version)
+		return
+	}
+
 	chezmoiRunner, err := chezmoi.NewCLI()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
