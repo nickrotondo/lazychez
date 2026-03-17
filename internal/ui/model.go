@@ -38,7 +38,8 @@ const narrowBreakpoint = 100
 type Model struct {
 	width   int
 	height  int
-	focused PaneID
+	focused     PaneID
+	prevFocused PaneID // last side-panel pane before entering diff
 
 	fileList  FileListModel
 	gitStatus GitStatusModel
@@ -290,23 +291,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "tab":
-		m.focused = (m.focused + 1) % paneCount
+		m.setFocus((m.focused + 1) % paneCount)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
 	case "shift+tab":
-		m.focused = (m.focused - 1 + paneCount) % paneCount
+		m.setFocus((m.focused - 1 + paneCount) % paneCount)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
 	case "1":
-		m.focused = PaneFileList
+		m.setFocus(PaneFileList)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
 	case "2":
-		m.focused = PaneGitStatus
+		m.setFocus(PaneGitStatus)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
 	case "0":
-		m.focused = PaneDiff
+		m.setFocus(PaneDiff)
 		m.updateDimensions()
 		return m, nil
 	case "r":
@@ -326,6 +327,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case PaneGitStatus:
 		return m.handleGitStatusKey(msg)
 	case PaneDiff:
+		if msg.String() == "esc" {
+			m.setFocus(m.prevFocused)
+			m.updateDimensions()
+			return m, m.fetchDiffForFocusedPane()
+		}
 		var cmd tea.Cmd
 		m.diffView, cmd = m.diffView.Update(msg)
 		return m, cmd
@@ -475,6 +481,15 @@ func (m Model) handleCommitKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // --- Internal helpers ---
+
+// setFocus changes the focused pane and remembers the previous side-panel
+// so that Esc from the diff pane can return to the originating pane.
+func (m *Model) setFocus(pane PaneID) {
+	if pane == PaneDiff && m.focused != PaneDiff {
+		m.prevFocused = m.focused
+	}
+	m.focused = pane
+}
 
 func (m *Model) setStatus(msg string, isError bool) {
 	m.statusMsg = msg

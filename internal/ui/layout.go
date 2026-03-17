@@ -61,9 +61,15 @@ func (m Model) viewWide(fileTitle, gitTitle, diffTitle string) string {
 
 	fileH, gitH := m.distributeLeftColumn(contentHeight)
 
-	filePane := m.renderPane(fileTitle, m.fileList.View(), leftWidth, fileH, m.focused == PaneFileList)
-	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), leftWidth, gitH, m.focused == PaneGitStatus)
-	diffPane := m.renderPane(diffTitle, m.diffView.View(), rightWidth, contentHeight, m.focused == PaneDiff)
+	fileCur, fileTotal := m.fileList.CursorPosition()
+	fileOff, fileTotalLines := m.fileList.ScrollState()
+	gitCur, gitTotal := m.gitStatus.CursorPosition()
+	gitOff, gitTotalLines := m.gitStatus.ScrollState()
+	diffOff, diffTotalLines := m.diffView.ScrollState()
+
+	filePane := m.renderPane(fileTitle, m.fileList.View(), leftWidth, fileH, m.focused == PaneFileList, paneOpts{info: posInfo(fileCur, fileTotal), scrollOff: fileOff, totalLines: fileTotalLines})
+	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), leftWidth, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
+	diffPane := m.renderPane(diffTitle, m.diffView.View(), rightWidth, contentHeight, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
 
 	left := lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, diffPane)
@@ -77,9 +83,15 @@ func (m Model) viewNarrow(fileTitle, gitTitle, diffTitle string) string {
 
 	fileH, gitH, diffH := m.distributeNarrow(contentHeight)
 
-	filePane := m.renderPane(fileTitle, m.fileList.View(), w, fileH, m.focused == PaneFileList)
-	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), w, gitH, m.focused == PaneGitStatus)
-	diffPane := m.renderPane(diffTitle, m.diffView.View(), w, diffH, m.focused == PaneDiff)
+	fileCur, fileTotal := m.fileList.CursorPosition()
+	fileOff, fileTotalLines := m.fileList.ScrollState()
+	gitCur, gitTotal := m.gitStatus.CursorPosition()
+	gitOff, gitTotalLines := m.gitStatus.ScrollState()
+	diffOff, diffTotalLines := m.diffView.ScrollState()
+
+	filePane := m.renderPane(fileTitle, m.fileList.View(), w, fileH, m.focused == PaneFileList, paneOpts{info: posInfo(fileCur, fileTotal), scrollOff: fileOff, totalLines: fileTotalLines})
+	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), w, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
+	diffPane := m.renderPane(diffTitle, m.diffView.View(), w, diffH, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
 
 	return lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane, diffPane)
 }
@@ -180,7 +192,17 @@ func (m Model) distributeNarrow(available int) (fileH, gitH, diffH int) {
 	return fileDesired, gitDesired, diffDesired
 }
 
-func (m Model) renderPane(title, content string, width, height int, active bool) string {
+type paneOpts struct {
+	info       string
+	scrollOff  int // current scroll offset (0-based top line)
+	totalLines int // total content lines (0 = no scrollbar)
+}
+
+func (m Model) renderPane(title, content string, width, height int, active bool, opts ...paneOpts) string {
+	var po paneOpts
+	if len(opts) > 0 {
+		po = opts[0]
+	}
 	borderColor := InactiveBorderColor
 	if active {
 		borderColor = ActiveBorderColor
@@ -195,13 +217,14 @@ func (m Model) renderPane(title, content string, width, height int, active bool)
 	// Top border with title embedded (lazygit style): ╭─[1] Title────╮
 	// Color the [N] hotkey only when the pane is focused.
 	var titleStr string
+	dash := bc.Render("─")
 	if idx := strings.Index(title, "] "); idx >= 0 {
 		hotkey := title[:idx+1]
-		rest := title[idx+1:]
+		rest := title[idx+2:] // skip the space after "]"
 		if active {
-			titleStr = PaneTitle.Render(hotkey + rest)
+			titleStr = PaneTitle.Render(hotkey) + dash + PaneTitle.Render(rest)
 		} else {
-			titleStr = lipgloss.NewStyle().Bold(true).Render(hotkey) + PaneTitle.Render(rest)
+			titleStr = lipgloss.NewStyle().Bold(true).Render(hotkey) + dash + PaneTitle.Render(rest)
 		}
 	} else {
 		titleStr = PaneTitle.Render(title)
@@ -216,7 +239,17 @@ func (m Model) renderPane(title, content string, width, height int, active bool)
 		Height(innerHeight).
 		Render(content)
 
-	// Wrap each content line with side borders
+	// Compute scrollbar thumb range (lazygit style: colored block on right border).
+	thumbStart, thumbEnd := -1, -1
+	if po.totalLines > innerHeight && innerHeight > 0 {
+		thumbSize := max(1, innerHeight*innerHeight/po.totalLines)
+		maxOff := po.totalLines - innerHeight
+		thumbStart = po.scrollOff * (innerHeight - thumbSize) / maxOff
+		thumbEnd = thumbStart + thumbSize
+	}
+	thumbStyle := lipgloss.NewStyle().Foreground(borderColor)
+	thumb := thumbStyle.Render("▐")
+
 	lines := strings.Split(body, "\n")
 	var mid strings.Builder
 	for i := 0; i < innerHeight; i++ {
@@ -224,11 +257,27 @@ func (m Model) renderPane(title, content string, width, height int, active bool)
 		if i < len(lines) {
 			line = lines[i]
 		}
-		mid.WriteString(side + line + side + "\n")
+		rightBorder := side
+		if i >= thumbStart && i < thumbEnd {
+			rightBorder = thumb
+		}
+		mid.WriteString(side + line + rightBorder + "\n")
 	}
 
-	// Bottom border
-	bottomLine := bc.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
+	// Bottom border with optional position info (lazygit style): ╰────1 of 12─╯
+	var bottomLine string
+	if po.info != "" {
+		infoStyle := lipgloss.NewStyle().Bold(true)
+		if active {
+			infoStyle = PaneTitle
+		}
+		infoStr := infoStyle.Render(po.info)
+		infoWidth := lipgloss.Width(infoStr)
+		fill := max(0, innerWidth-infoWidth-1)
+		bottomLine = bc.Render("╰"+strings.Repeat("─", fill)) + infoStr + bc.Render("─╯")
+	} else {
+		bottomLine = bc.Render("╰" + strings.Repeat("─", innerWidth) + "╯")
+	}
 
 	return topLine + "\n" + mid.String() + bottomLine
 }
@@ -278,7 +327,7 @@ func (m Model) renderFooter() string {
 			hint("c", "commit"), hint("p", "pull"), hint("P", "push"), hint("D", "discard"), hint("0-2", "panels"),
 		}
 	case PaneDiff:
-		paneHints = []string{hint("0-2", "panels")}
+		paneHints = []string{hint("esc", "back"), hint("0-2", "panels")}
 	}
 
 	globalHints := []string{
@@ -324,6 +373,7 @@ func (m Model) renderHelp() string {
     0/1/2       Jump to panel
     tab         Next panel
     shift+tab   Previous panel
+    esc         Back from diff panel
 
   File Actions
     space       Add file (dest → source)
@@ -378,6 +428,14 @@ func (m Model) renderConfirmGitDiscard() string {
 		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
 	)
 	return OverlayStyle.Render(content)
+}
+
+// posInfo formats a "X of Y" string, or empty if total is 0.
+func posInfo(current, total int) string {
+	if total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d of %d", current, total)
 }
 
 // hyperlink wraps text in an OSC 8 terminal hyperlink escape sequence.
