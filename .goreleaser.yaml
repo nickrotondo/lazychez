@@ -15,7 +15,7 @@ builds:
 archives:
   - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
-homebrew_casks:
+brews:
   - name: lazychez
     repository:
       owner: nickrotondo
