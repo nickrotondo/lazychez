@@ -23,6 +23,9 @@ lazychez
 .claude/
 CLAUDE.md
 
+# GoReleaser
+dist/
+
 # mise
 .mise.toml
 .mise.local.toml

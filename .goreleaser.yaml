@@ -13,20 +13,15 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
-brews:
-  - repository:
+homebrew_casks:
+  - name: lazychez
+    repository:
       owner: nickrotondo
       name: homebrew-tap
     homepage: https://github.com/nickrotondo/lazychez
     description: A terminal UI for managing chezmoi dotfiles with integrated git operations
-    license: MIT
-    install: |
-      bin.install "lazychez"
-    test: |
-      assert_match version, shell_output("#{bin}/lazychez --version", 2)
 
 changelog:
   sort: asc
