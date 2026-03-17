@@ -193,7 +193,19 @@ func (m Model) renderPane(title, content string, width, height int, active bool)
 	side := bc.Render("│")
 
 	// Top border with title embedded (lazygit style): ╭─[1] Title────╮
-	titleStr := PaneTitle.Render(title)
+	// Color the [N] hotkey only when the pane is focused.
+	var titleStr string
+	if idx := strings.Index(title, "] "); idx >= 0 {
+		hotkey := title[:idx+1]
+		rest := title[idx+1:]
+		if active {
+			titleStr = PaneTitle.Render(hotkey + rest)
+		} else {
+			titleStr = lipgloss.NewStyle().Bold(true).Render(hotkey) + PaneTitle.Render(rest)
+		}
+	} else {
+		titleStr = PaneTitle.Render(title)
+	}
 	titleWidth := lipgloss.Width(titleStr)
 	pad := max(0, innerWidth-titleWidth-1)
 	topLine := bc.Render("╭─") + titleStr + bc.Render(strings.Repeat("─", pad)+"╮")
@@ -273,12 +285,19 @@ func (m Model) renderFooter() string {
 		hint("C", "config"), hint("?", "help"), hint("q", "quit"),
 	}
 
-	left := " " + strings.Join(append(paneHints, globalHints...), sep)
+	allHints := append(paneHints, globalHints...)
 	right := hyperlink("https://x.com/nicklrotondo", FooterLink.Render("𝕏 @nicklrotondo")) + " "
-
-	leftWidth := lipgloss.Width(left)
 	rightWidth := lipgloss.Width(right)
-	gap := m.width - leftWidth - rightWidth
+	ellipsis := HelpSep.Render(" | ") + HelpDesc.Render("…")
+
+	// Progressively drop hints from the right until they fit.
+	left := " " + strings.Join(allHints, sep)
+	for len(allHints) > 1 && lipgloss.Width(left)+rightWidth+1 > m.width {
+		allHints = allHints[:len(allHints)-1]
+		left = " " + strings.Join(allHints, sep) + ellipsis
+	}
+
+	gap := m.width - lipgloss.Width(left) - rightWidth
 	if gap < 1 {
 		return left
 	}
@@ -292,7 +311,7 @@ func (m Model) renderOverlay(background, overlay string) string {
 		lipgloss.Center, lipgloss.Center,
 		overlay,
 		lipgloss.WithWhitespaceChars(" "),
-		lipgloss.WithWhitespaceForeground(lipgloss.Color("#1a1b26")),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("#172b32")),
 	)
 }
 

@@ -4,24 +4,24 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	// Border colors
-	ActiveBorderColor   = lipgloss.Color("#7aa2f7")
-	InactiveBorderColor = lipgloss.Color("#565f89")
+	ActiveBorderColor   = lipgloss.Color("#81cae4")
+	InactiveBorderColor = lipgloss.Color("#5a7a86")
 
 	// Semantic colors
-	ModifiedColor = lipgloss.Color("#e0af68")
-	AddedColor    = lipgloss.Color("#9ece6a")
-	DeletedColor  = lipgloss.Color("#f7768e")
-	TitleColor    = lipgloss.Color("#7aa2f7")
-	SelectedBg    = lipgloss.Color("#283457")
-	MutedColor    = lipgloss.Color("#565f89")
-	SuccessColor  = lipgloss.Color("#9ece6a")
-	ErrorColor    = lipgloss.Color("#f7768e")
+	ModifiedColor = lipgloss.Color("#e4cd81")
+	AddedColor    = lipgloss.Color("#98e481")
+	DeletedColor  = lipgloss.Color("#e48281")
+	TitleColor    = lipgloss.Color("#81cae4")
+	SelectedBg    = lipgloss.Color("#114a5f")
+	MutedColor    = lipgloss.Color("#5a7a86")
+	SuccessColor  = lipgloss.Color("#98e481")
+	ErrorColor    = lipgloss.Color("#e48281")
 
 	// Diff colors
-	DiffAddColor  = lipgloss.Color("#9ece6a")
-	DiffDelColor  = lipgloss.Color("#f7768e")
-	DiffHunkColor = lipgloss.Color("#bb9af7")
-	DiffMetaColor = lipgloss.Color("#565f89")
+	DiffAddColor  = lipgloss.Color("#98e481")
+	DiffDelColor  = lipgloss.Color("#e48281")
+	DiffHunkColor = lipgloss.Color("#9c81e4")
+	DiffMetaColor = lipgloss.Color("#5a7a86")
 
 	// Pane styles
 	ActivePane = lipgloss.NewStyle().
@@ -60,11 +60,11 @@ var (
 	HelpKey  = lipgloss.NewStyle().Foreground(ActiveBorderColor).Bold(true)
 	HelpDesc = lipgloss.NewStyle().Foreground(MutedColor)
 	HelpSep  = lipgloss.NewStyle().Foreground(MutedColor)
-	FooterLink = lipgloss.NewStyle().Foreground(lipgloss.Color("#a9b1d6"))
+	FooterLink = lipgloss.NewStyle().Foreground(lipgloss.Color("#e9f6fb"))
 
 	// Status bar
 	StatusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#a9b1d6"))
+			Foreground(lipgloss.Color("#e9f6fb"))
 	StatusBarError = lipgloss.NewStyle().
 			Foreground(ErrorColor)
 	StatusBarSuccess = lipgloss.NewStyle().
@@ -75,5 +75,5 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ActiveBorderColor).
 			Padding(1, 2).
-			Background(lipgloss.Color("#1a1b26"))
+			Background(lipgloss.Color("#172b32"))
 )
