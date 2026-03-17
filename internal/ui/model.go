@@ -33,7 +33,7 @@ const (
 )
 
 // narrowBreakpoint is the width below which we switch to stacked layout.
-const narrowBreakpoint = 100
+const narrowBreakpoint = 85
 
 type Model struct {
 	width   int

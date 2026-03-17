@@ -8,8 +8,8 @@ func TestIsNarrow(t *testing.T) {
 		want  bool
 	}{
 		{0, true},
-		{99, true},
-		{100, false},
+		{84, true},
+		{85, false},
 		{120, false},
 	}
 	for _, tt := range tests {

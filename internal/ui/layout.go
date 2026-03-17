@@ -55,7 +55,7 @@ func (m Model) View() string {
 // viewWide renders the side-by-side layout (>= 100 cols).
 // Left column panes size to content; diff takes full right side.
 func (m Model) viewWide(fileTitle, gitTitle, diffTitle string) string {
-	leftWidth := m.width * 30 / 100
+	leftWidth := m.width / 3
 	rightWidth := m.width - leftWidth
 	contentHeight := m.height - 2
 
@@ -230,6 +230,12 @@ func (m Model) renderPane(title, content string, width, height int, active bool,
 		titleStr = PaneTitle.Render(title)
 	}
 	titleWidth := lipgloss.Width(titleStr)
+	// Truncate title if it exceeds available space (innerWidth - 1 for closing corner)
+	maxTitle := innerWidth - 1
+	if titleWidth > maxTitle && maxTitle > 0 {
+		titleStr = lipgloss.NewStyle().MaxWidth(maxTitle).Render(titleStr)
+		titleWidth = lipgloss.Width(titleStr)
+	}
 	pad := max(0, innerWidth-titleWidth-1)
 	topLine := bc.Render("╭─") + titleStr + bc.Render(strings.Repeat("─", pad)+"╮")
 
