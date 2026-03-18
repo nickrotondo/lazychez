@@ -29,14 +29,10 @@ Enter
 Type 'clear'
 Enter
 Sleep 1s
-Show
-
-# Launch
-Sleep 400ms
 Type "lazychez"
-Sleep 600ms
 Enter
 Wait+Screen /Managed Files/
+Show
 Sleep 2s
 
 # Browse files with vim-style navigation
