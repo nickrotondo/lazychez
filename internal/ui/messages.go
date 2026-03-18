@@ -51,6 +51,11 @@ type AddNewFileResultMsg struct {
 	Err  error
 }
 
+type BatchAddResultMsg struct {
+	Added  []string // paths that were added successfully
+	Errors map[string]error
+}
+
 type GitStatusMsg struct {
 	Entries []GitStatusEntry
 	Err     error

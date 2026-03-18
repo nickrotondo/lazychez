@@ -77,6 +77,24 @@ func addNewFile(r chezmoi.Runner, path string) tea.Cmd {
 	}
 }
 
+func batchAddNewFiles(r chezmoi.Runner, paths []string) tea.Cmd {
+	return func() tea.Msg {
+		var added []string
+		errors := make(map[string]error)
+		for _, p := range paths {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := r.AddNew(ctx, p)
+			cancel()
+			if err != nil {
+				errors[p] = err
+			} else {
+				added = append(added, p)
+			}
+		}
+		return BatchAddResultMsg{Added: added, Errors: errors}
+	}
+}
+
 func forgetFile(r chezmoi.Runner, path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

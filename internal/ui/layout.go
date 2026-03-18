@@ -317,27 +317,26 @@ func (m Model) renderFooter() string {
 		case sel != nil && sel.Drift == DriftDestEdited:
 			paneHints = []string{
 				hint("space", "add (dest → source)"), hint("a", "apply"),
-				hint("A", "apply all"), hint("D", "discard"), hint("+", "new"), hint("x", "forget"), hint("e/E", "edit"),
+				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
 			}
 		case sel != nil && sel.Drift == DriftSourceEdited:
 			paneHints = []string{
 				hint("a", "apply (source → dest)"), hint("space", "add"),
-				hint("A", "apply all"), hint("D", "discard"), hint("+", "new"), hint("x", "forget"), hint("e/E", "edit"),
+				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
 			}
 		default:
 			paneHints = []string{
-				hint("space", "add"), hint("a", "apply"), hint("A", "apply all"),
-				hint("D", "discard"), hint("+", "new"), hint("x", "forget"), hint("e/E", "edit"),
+				hint("space", "add"), hint("a", "apply"),
+				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
 			}
 		}
-		paneHints = append(paneHints, hint("0-2", "panels"))
 	case PaneGitStatus:
 		paneHints = []string{
 			hint("space", "stage"), hint("a", "stage all"),
-			hint("c", "commit"), hint("p", "pull"), hint("P", "push"), hint("D", "discard"), hint("0-2", "panels"),
+			hint("c", "commit"), hint("p", "pull"), hint("P", "push"), hint("D", "discard"),
 		}
 	case PaneDiff:
-		paneHints = []string{hint("esc", "back"), hint("0-2", "panels")}
+		paneHints = []string{hint("esc", "back")}
 	}
 
 	globalHints := []string{
@@ -374,18 +373,21 @@ func (m Model) renderOverlay(background, overlay string) string {
 	)
 }
 
-func (m Model) renderHelp() string {
-	help := `Keybindings
+func (m Model) helpContent() string {
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e9f6fb"))
+	heading := lipgloss.NewStyle().Foreground(ActiveBorderColor)
 
-  Navigation
+	return title.Render("Keybindings") + "\n\n" +
+		heading.Render("  Navigation") + `
     j/k         Move up/down
     g/G         Jump to top/bottom
     0/1/2       Jump to panel
+    ←/→         Cycle between file list and git
     tab         Next panel
     shift+tab   Previous panel
     esc         Back from diff panel
-
-  File Actions
+` + "\n" +
+		heading.Render("  File Actions") + `
     space       Add file (dest → source)
     a           Apply file (source → dest)
     A           Apply all files
@@ -394,22 +396,58 @@ func (m Model) renderHelp() string {
     E           Edit destination file
     +           Add unmanaged file
     x           Forget file (unmanage)
-
-  Git Actions
+` + "\n" +
+		heading.Render("  Git Actions") + `
     space       Stage file (git add)
     a           Stage all files
     c           Commit (opens input)
     p           Pull from remote
     P           Push to remote
     D           Discard changes
-
-  General
+` + "\n" +
+		heading.Render("  General") + `
     r           Refresh all panes
     C           Edit chezmoi config
     ?           Toggle this help
     q           Quit`
+}
 
-	return OverlayStyle.Render(help)
+func (m Model) renderHelp() string {
+	content := m.helpViewport.View()
+	total := m.helpViewport.TotalLineCount()
+	visibleH := m.helpViewport.Height
+
+	if total <= visibleH || visibleH <= 0 {
+		return OverlayStyle.Render(content)
+	}
+
+	// Add scrollbar on the right edge
+	thumbSize := max(1, visibleH*visibleH/total)
+	maxOff := total - visibleH
+	thumbStart := m.helpViewport.YOffset * (visibleH - thumbSize) / maxOff
+	thumbEnd := thumbStart + thumbSize
+
+	thumbStyle := lipgloss.NewStyle().Foreground(ActiveBorderColor)
+	trackStyle := lipgloss.NewStyle().Foreground(MutedColor)
+
+	lines := strings.Split(content, "\n")
+	var b strings.Builder
+	for i := 0; i < visibleH; i++ {
+		line := ""
+		if i < len(lines) {
+			line = lines[i]
+		}
+		if i >= thumbStart && i < thumbEnd {
+			b.WriteString(line + " " + thumbStyle.Render("▐"))
+		} else {
+			b.WriteString(line + " " + trackStyle.Render("│"))
+		}
+		if i < visibleH-1 {
+			b.WriteByte('\n')
+		}
+	}
+
+	return OverlayStyle.Render(b.String())
 }
 
 func (m Model) renderCommitInput() string {
@@ -443,7 +481,7 @@ func (m Model) renderConfirmForget() string {
 }
 
 func (m Model) renderAddFileOverlay() string {
-	hint := HelpDesc.Render("type to filter") +
+	hint := HelpKey.Render("space") + " " + HelpDesc.Render("select") +
 		HelpSep.Render(" · ") +
 		HelpKey.Render("enter") + " " + HelpDesc.Render("add") +
 		HelpSep.Render(" · ") +

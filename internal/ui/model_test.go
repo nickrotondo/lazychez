@@ -494,6 +494,31 @@ func TestHandleKey_GlobalKeys(t *testing.T) {
 		}
 	})
 
+	t.Run("left/right cycles between file list and git status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		// Start at file list, right arrow → git status
+		m, _ = sendSpecialKey(m, tea.KeyRight)
+		if m.focused != PaneGitStatus {
+			t.Errorf("after right: focused = %d, want PaneGitStatus", m.focused)
+		}
+		// Right again → back to file list
+		m, _ = sendSpecialKey(m, tea.KeyRight)
+		if m.focused != PaneFileList {
+			t.Errorf("after right: focused = %d, want PaneFileList", m.focused)
+		}
+		// Left from file list → git status
+		m, _ = sendSpecialKey(m, tea.KeyLeft)
+		if m.focused != PaneGitStatus {
+			t.Errorf("after left: focused = %d, want PaneGitStatus", m.focused)
+		}
+		// From diff pane, arrow goes to file list
+		m.focused = PaneDiff
+		m, _ = sendSpecialKey(m, tea.KeyLeft)
+		if m.focused != PaneFileList {
+			t.Errorf("after left from diff: focused = %d, want PaneFileList", m.focused)
+		}
+	})
+
 	t.Run("r triggers refresh", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		_, cmd := sendKey(m, "r")
@@ -899,6 +924,134 @@ func TestHandleKey_OverlayAddFile(t *testing.T) {
 		path := m.addFile.SelectedPath()
 		if path != ".profile" {
 			t.Errorf("after filtering: selected = %q, want .profile", path)
+		}
+	})
+
+	t.Run("space toggles selection on current item", func(t *testing.T) {
+		m := setup()
+		if m.addFile.SelectionCount() != 0 {
+			t.Fatalf("initial selection count = %d, want 0", m.addFile.SelectionCount())
+		}
+		m, _ = sendSpecialKey(m, tea.KeySpace)
+		if m.addFile.SelectionCount() != 1 {
+			t.Errorf("selection count after space = %d, want 1", m.addFile.SelectionCount())
+		}
+		if !m.addFile.selected[".config/new"] {
+			t.Error("expected .config/new to be selected")
+		}
+		// Cursor stays on the same item
+		if m.addFile.SelectedPath() != ".config/new" {
+			t.Errorf("cursor should stay on .config/new, got %q", m.addFile.SelectedPath())
+		}
+		// Toggle again to deselect
+		m, _ = sendSpecialKey(m, tea.KeySpace)
+		if m.addFile.SelectionCount() != 0 {
+			t.Errorf("selection count after deselect = %d, want 0", m.addFile.SelectionCount())
+		}
+	})
+
+	t.Run("enter with multi-select closes overlay and dispatches batch add", func(t *testing.T) {
+		m := setup()
+		// Select first two files
+		m, _ = sendSpecialKey(m, tea.KeySpace)
+		m, _ = sendSpecialKey(m, tea.KeyDown)
+		m, _ = sendSpecialKey(m, tea.KeySpace)
+		if m.addFile.SelectionCount() != 2 {
+			t.Fatalf("selection count = %d, want 2", m.addFile.SelectionCount())
+		}
+		m, cmd := sendSpecialKey(m, tea.KeyEnter)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone", m.overlay)
+		}
+		if cmd == nil {
+			t.Fatal("cmd should not be nil")
+		}
+		msg := cmd()
+		result, ok := msg.(BatchAddResultMsg)
+		if !ok {
+			t.Fatalf("cmd() returned %T, want BatchAddResultMsg", msg)
+		}
+		if len(result.Added) != 2 {
+			t.Errorf("added count = %d, want 2", len(result.Added))
+		}
+	})
+
+	t.Run("enter with no selections uses focused file fallback", func(t *testing.T) {
+		m := setup()
+		// No space toggles — just press enter
+		m, cmd := sendSpecialKey(m, tea.KeyEnter)
+		if m.overlay != OverlayNone {
+			t.Errorf("overlay = %d, want OverlayNone (single-select fallback closes)", m.overlay)
+		}
+		if cmd == nil {
+			t.Fatal("cmd should not be nil")
+		}
+		msg := cmd()
+		result, ok := msg.(AddNewFileResultMsg)
+		if !ok {
+			t.Fatalf("cmd() returned %T, want AddNewFileResultMsg", msg)
+		}
+		if result.Path != ".config/new" {
+			t.Errorf("result.Path = %q, want .config/new", result.Path)
+		}
+	})
+}
+
+func TestUpdate_BatchAddResultMsg(t *testing.T) {
+	setup := func() Model {
+		m, _, _ := newTestModel()
+		m.addFile = NewAddFileModel([]string{".config/new", ".profile", ".local/share/app"}, 50, 15)
+		m.overlay = OverlayAddFile
+		return m
+	}
+
+	t.Run("success shows status and refreshes", func(t *testing.T) {
+		m := setup()
+		msg := BatchAddResultMsg{
+			Added:  []string{".config/new", ".profile"},
+			Errors: map[string]error{},
+		}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !strings.Contains(m.statusMsg, "Added 2 files") {
+			t.Errorf("statusMsg = %q, want to contain 'Added 2 files'", m.statusMsg)
+		}
+		if m.statusError {
+			t.Error("statusError should be false")
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+
+	t.Run("partial failure shows error status", func(t *testing.T) {
+		m := setup()
+		msg := BatchAddResultMsg{
+			Added:  []string{".config/new"},
+			Errors: map[string]error{".profile": fmt.Errorf("permission denied")},
+		}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !m.statusError {
+			t.Error("statusError should be true")
+		}
+		if !strings.Contains(m.statusMsg, "1 failed") {
+			t.Errorf("statusMsg = %q, want to contain '1 failed'", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatus + refresh)")
+		}
+	})
+
+	t.Run("refreshes all panes after batch add", func(t *testing.T) {
+		m := setup()
+		msg := BatchAddResultMsg{
+			Added:  []string{".config/new"},
+			Errors: map[string]error{},
+		}
+		_, cmd := m.Update(msg)
+		if cmd == nil {
+			t.Error("cmd should not be nil (should refresh)")
 		}
 	})
 }

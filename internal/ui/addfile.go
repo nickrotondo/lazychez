@@ -19,6 +19,7 @@ type AddFileModel struct {
 	filter   textinput.Model
 	allFiles []string
 	filtered []string
+	selected map[string]bool
 	cursor   int
 	offset   int
 	width    int
@@ -28,7 +29,8 @@ type AddFileModel struct {
 
 func NewAddFileModel(files []string, width, height int) AddFileModel {
 	ti := textinput.New()
-	ti.Placeholder = "filter..."
+	ti.Placeholder = "type to filter..."
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(MutedColor)
 	ti.Prompt = "/ "
 	ti.PromptStyle = lipgloss.NewStyle().Foreground(ActiveBorderColor)
 	ti.Focus()
@@ -42,6 +44,7 @@ func NewAddFileModel(files []string, width, height int) AddFileModel {
 		filter:   ti,
 		allFiles: files,
 		filtered: files,
+		selected: make(map[string]bool),
 		width:    width,
 		height:   height,
 		columns:  columns,
@@ -55,9 +58,74 @@ func (m AddFileModel) SelectedPath() string {
 	return m.filtered[m.cursor]
 }
 
+// SelectedPaths returns all multi-selected file paths. If none are selected,
+// returns the currently focused file as a single-element slice (fallback).
+func (m AddFileModel) SelectedPaths() []string {
+	var paths []string
+	for _, f := range m.allFiles {
+		if m.selected[f] {
+			paths = append(paths, f)
+		}
+	}
+	if len(paths) == 0 {
+		if p := m.SelectedPath(); p != "" {
+			return []string{p}
+		}
+	}
+	return paths
+}
+
+func (m AddFileModel) SelectionCount() int {
+	count := 0
+	for _, v := range m.selected {
+		if v {
+			count++
+		}
+	}
+	return count
+}
+
+func (m *AddFileModel) ToggleSelected() {
+	if len(m.filtered) == 0 || m.cursor >= len(m.filtered) {
+		return
+	}
+	path := m.filtered[m.cursor]
+	if m.selected[path] {
+		delete(m.selected, path)
+	} else {
+		m.selected[path] = true
+	}
+}
+
+// RemoveFiles removes the given paths from the file lists and clears their
+// selection state. Keeps the cursor in bounds.
+func (m *AddFileModel) RemoveFiles(paths []string) {
+	remove := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		remove[p] = true
+		delete(m.selected, p)
+	}
+
+	filtered := m.allFiles[:0:0]
+	for _, f := range m.allFiles {
+		if !remove[f] {
+			filtered = append(filtered, f)
+		}
+	}
+	m.allFiles = filtered
+	m.applyFilter()
+	if m.cursor >= len(m.filtered) {
+		m.cursor = max(0, len(m.filtered)-1)
+	}
+	m.snapOffset()
+}
+
 func (m AddFileModel) Update(msg tea.Msg) (AddFileModel, tea.Cmd) {
 	if kmsg, ok := msg.(tea.KeyMsg); ok {
 		switch kmsg.Type {
+		case tea.KeySpace:
+			m.ToggleSelected()
+			return m, nil
 		case tea.KeyUp:
 			m.moveUp()
 			return m, nil
@@ -187,15 +255,21 @@ func (m AddFileModel) View() string {
 	b.WriteString(PaneTitle.Render("Add File to Chezmoi"))
 	b.WriteByte('\n')
 
-	// Status — shows filtered count when filter is active
+	// Status — shows filtered count when filter is active, plus selection count
 	total := len(m.allFiles)
 	visible := len(m.filtered)
+	sel := m.SelectionCount()
 	muted := lipgloss.NewStyle().Foreground(MutedColor)
+	var status string
 	if visible != total {
-		b.WriteString(muted.Render(fmt.Sprintf("%d of %d unmanaged files", visible, total)))
+		status = fmt.Sprintf("%d of %d unmanaged files", visible, total)
 	} else {
-		b.WriteString(muted.Render(fmt.Sprintf("%d unmanaged files", total)))
+		status = fmt.Sprintf("%d unmanaged files", total)
 	}
+	if sel > 0 {
+		status += fmt.Sprintf(" · %d selected", sel)
+	}
+	b.WriteString(muted.Render(status))
 	b.WriteByte('\n')
 
 	if len(m.filtered) == 0 {
@@ -216,7 +290,8 @@ func (m AddFileModel) View() string {
 				b.WriteString("  ")
 			}
 			if idx < len(m.filtered) {
-				b.WriteString(renderFileItem(m.filtered[idx], idx == m.cursor, cw))
+				checked := m.selected[m.filtered[idx]]
+				b.WriteString(renderFileItem(m.filtered[idx], idx == m.cursor, checked, cw))
 			} else {
 				b.WriteString(strings.Repeat(" ", cw))
 			}
@@ -236,23 +311,31 @@ func (m AddFileModel) View() string {
 	return b.String()
 }
 
-func renderFileItem(path string, selected bool, colWidth int) string {
-	maxPath := max(0, colWidth-2) // 2 for indicator + space
+func renderFileItem(path string, focused, checked bool, colWidth int) string {
+	indicator := "  "
+	if checked {
+		indicator = "✓ "
+	}
+	maxPath := max(0, colWidth-2) // 2 for indicator
 	display := path
 	if len(display) > maxPath && maxPath > 1 {
 		display = display[:maxPath-1] + "…"
 	}
 
 	// Pad to fill column width so the highlight spans the full row
-	text := display
-	if pad := maxPath - len(display); pad > 0 {
+	text := indicator + display
+	// indicator is always 2 visual cells wide ("  " or "✓ ")
+	if pad := colWidth - 2 - len(display); pad > 0 {
 		text += strings.Repeat(" ", pad)
 	}
 
-	if selected {
-		return SelectedItem.Render("  " + text)
+	if focused {
+		return SelectedItem.Render(text)
 	}
-	return "  " + text
+	if checked {
+		return lipgloss.NewStyle().Foreground(SuccessColor).Render(text)
+	}
+	return text
 }
 
 func renderPaginationDots(current, total int) string {

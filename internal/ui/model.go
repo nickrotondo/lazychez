@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/nickrotondo/lazychez/internal/chezmoi"
 	"github.com/nickrotondo/lazychez/internal/git"
@@ -50,6 +53,7 @@ type Model struct {
 	// Overlay state
 	overlay          OverlayMode
 	commitInput      textinput.Model
+	helpViewport     viewport.Model
 	discardPath      string
 	discardUntracked bool
 	forgetPath       string
@@ -73,6 +77,7 @@ type Model struct {
 func New(chezmoiRunner chezmoi.Runner, gitRunner git.Runner) Model {
 	ti := textinput.New()
 	ti.Placeholder = "commit message..."
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(MutedColor)
 	ti.CharLimit = 120
 
 	return Model{
@@ -105,6 +110,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateDimensions()
+		if m.overlay == OverlayHelp {
+			contentLines := m.helpViewport.TotalLineCount()
+			maxH := m.height - 6
+			m.helpViewport.Height = max(1, min(contentLines, maxH))
+		}
 		return m, nil
 
 	case ManagedFilesMsg:
@@ -203,6 +213,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
+	case BatchAddResultMsg:
+		if len(msg.Errors) > 0 {
+			m.setStatus(fmt.Sprintf("Added %d files, %d failed", len(msg.Added), len(msg.Errors)), true)
+		} else {
+			m.setStatus(fmt.Sprintf("Added %d files", len(msg.Added)), false)
+		}
+		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
+
 	case ApplyAllResultMsg:
 		if msg.Err != nil {
 			m.setStatus(fmt.Sprintf("Error applying all: %v", msg.Err), true)
@@ -293,8 +311,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "?", "esc", "q":
 			m.overlay = OverlayNone
+			return m, nil
 		}
-		return m, nil
+		var cmd tea.Cmd
+		m.helpViewport, cmd = m.helpViewport.Update(msg)
+		return m, cmd
 
 	case OverlayCommit:
 		return m.handleCommitKey(msg)
@@ -348,6 +369,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus((m.focused - 1 + paneCount) % paneCount)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
+	case "left", "right":
+		if m.focused == PaneFileList {
+			m.setFocus(PaneGitStatus)
+		} else {
+			m.setFocus(PaneFileList)
+		}
+		m.updateDimensions()
+		return m, m.fetchDiffForFocusedPane()
 	case "1":
 		m.setFocus(PaneFileList)
 		m.updateDimensions()
@@ -364,6 +393,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshAll()
 	case "?":
 		m.overlay = OverlayHelp
+		m.initHelpViewport()
 		return m, nil
 	case "C":
 		m.setStatus("Waiting for edit...", false)
@@ -546,12 +576,15 @@ func (m Model) handleAddFileKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = OverlayNone
 		return m, nil
 	case "enter":
-		path := m.addFile.SelectedPath()
-		if path != "" {
-			m.overlay = OverlayNone
-			return m, addNewFile(m.chezmoi, path)
+		paths := m.addFile.SelectedPaths()
+		if len(paths) == 0 {
+			return m, nil
 		}
-		return m, nil
+		m.overlay = OverlayNone
+		if len(paths) == 1 {
+			return m, addNewFile(m.chezmoi, paths[0])
+		}
+		return m, batchAddNewFiles(m.chezmoi, paths)
 	}
 
 	var cmd tea.Cmd
@@ -560,6 +593,15 @@ func (m Model) handleAddFileKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // --- Internal helpers ---
+
+func (m *Model) initHelpViewport() {
+	content := m.helpContent()
+	contentLines := strings.Count(content, "\n") + 1
+	maxH := m.height - 6 // account for overlay border + padding
+	h := min(contentLines, maxH)
+	m.helpViewport = viewport.New(0, max(1, h))
+	m.helpViewport.SetContent(content)
+}
 
 // setFocus changes the focused pane and remembers the previous side-panel
 // so that Esc from the diff pane can return to the originating pane.
