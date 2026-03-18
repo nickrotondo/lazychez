@@ -1,19 +1,22 @@
 # lazychez
 
-A terminal UI for managing [chezmoi](https://www.chezmoi.io/) dotfiles with integrated git operations. Think [lazygit](https://github.com/jesseduffield/lazygit) for your dotfiles.
+**[lazygit](https://github.com/jesseduffield/lazygit), but for your dotfiles.**
 
-Built with Go and the [Bubbletea](https://github.com/charmbracelet/bubbletea) framework.
+Your `.zshrc` is on three machines and none of them match. Sound familiar? [chezmoi](https://www.chezmoi.io/) solves this — it's a dotfile manager that tracks your config files in a git repo and applies them consistently across every machine you touch. It's powerful, well-designed, and entirely CLI-driven.
 
-## Features
+lazychez gives chezmoi a proper terminal UI. Browse your managed files, see exactly what's drifted, view diffs, add or apply changes, and push it all to git — without stringing together five commands from memory.
 
-- Browse all chezmoi-managed files with drift detection (source vs destination changes)
-- Inline diffs with syntax-highlighted output
-- Add, apply, and discard dotfile changes
-- Add unmanaged files to chezmoi with fuzzy-filtered file picker
-- Forget (unmanage) files from chezmoi
-- Full git workflow: stage, commit, push, pull — without leaving the TUI
-- Responsive layout: side-by-side (wide) or stacked (narrow terminals)
-- Vim-style navigation
+<!-- TODO: add hero GIF here -->
+
+## Why lazychez
+
+- **See drift instantly** — know which files changed at the source, at the destination, or both
+- **Inline diffs** — syntax-highlighted, scrollable, right there in your terminal
+- **Full git workflow built in** — stage, commit, push, pull without switching tools
+- **Fuzzy file picker** — add unmanaged files to chezmoi without typing paths
+- **Forget files** — remove files from chezmoi management when you're done with them
+- **Responsive layout** — side-by-side on wide terminals, stacked on narrow ones
+- **Vim-style navigation** — because of course
 
 ## Install
 
@@ -41,83 +44,100 @@ go build
 
 ## Prerequisites
 
-- [chezmoi](https://www.chezmoi.io/install/) must be installed and initialized (`chezmoi init`)
-- Git (for the git integration pane)
+- [chezmoi](https://www.chezmoi.io/install/) installed and initialized (`chezmoi init`)
+- Git
 
 ## Usage
 
 Run `lazychez` from anywhere — it automatically finds your chezmoi source directory.
 
-> [!NOTE]
-> **Pro Tip:** Alias `lazychez` to something like `lc` or `chez` for quick launching
+> [!TIP]
+> Alias it to something short like `lc` or `chez`. Your future self will thank you.
 
 ### Layout
 
 The UI has three panes:
 
-| Pane                  | Description                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| **[1] Managed Files** | All chezmoi-managed files with drift indicators                |
-| **[2] Source Git**    | Git status of your chezmoi source directory                    |
-| **[0] Details/Diff**  | More details for the selected pane or file—usually a diff view |
+| Pane | What it shows |
+| --- | --- |
+| **[1] Managed Files** | All chezmoi-managed files with drift indicators |
+| **[2] Source Git** | Git status of your chezmoi source directory |
+| **[0] Diff** | Diff view for the selected file |
 
-In wide terminals (85+ columns), the file list and git status stack on the left with the diff on the right. In narrow terminals, all three panes stack vertically.
+Wide terminals (100+ columns) get a side-by-side layout — file list and git status on the left, diff on the right. Narrow terminals stack everything vertically.
+
+<!-- TODO: add layout GIF or screenshot here -->
+
+### How it works
+
+lazychez wraps the `chezmoi` and `git` CLIs under the hood. It calls `chezmoi managed`, `chezmoi status`, and `git status` to populate the panes, then delegates to `chezmoi add`, `chezmoi apply`, `git commit`, etc. for every operation.
+
+**Drift detection** compares source and destination states:
+
+- **●  Source edited** — chezmoi source has changes not yet applied to `~`
+- **◆  Dest edited** — a file in `~` was changed outside chezmoi
 
 ### Keybindings
 
-#### Navigation
+<details>
+<summary><strong>Navigation</strong></summary>
 
-| Key                 | Action               |
-| ------------------- | -------------------- |
-| `j` / `k`           | Move down / up       |
-| `g` / `G`           | Jump to top / bottom |
+| Key | Action |
+| --- | --- |
+| `j` / `k` | Move down / up |
+| `g` / `G` | Jump to top / bottom |
+| `Ctrl+d` / `Ctrl+u` | Half-page down / up |
+| `H` / `L` | Previous / next pane |
 | `Tab` / `Shift+Tab` | Next / previous pane |
-| `←` / `→`           | Cycle between file list and git |
-| `0` / `1` / `2`     | Jump to pane         |
-| `Esc`               | Back from diff pane  |
+| `←` / `→` | Cycle between file list and git |
+| `0` / `1` / `2` | Jump to pane |
+| `Esc` | Back from diff pane |
 
-#### Managed Files pane
+</details>
 
-| Key     | Action                                  |
-| ------- | --------------------------------------- |
-| `Space` | Add file (copy destination → source)    |
-| `a`     | Apply file (copy source → destination)  |
-| `A`     | Apply all files                         |
-| `D`     | Discard drift (revert the changed side) |
-| `e`     | Edit source (`chezmoi edit`)            |
-| `E`     | Edit destination file                   |
-| `+`     | Add unmanaged file (fuzzy file picker)  |
-| `x`     | Forget file (remove from chezmoi)       |
+<details>
+<summary><strong>Managed Files pane</strong></summary>
 
-#### Git pane
+| Key | Action |
+| --- | --- |
+| `Space` | Add file (copy destination → source) |
+| `a` | Apply file (copy source → destination) |
+| `A` | Apply all files |
+| `D` | Discard drift (revert the changed side) |
+| `e` | Edit source (`chezmoi edit`) |
+| `E` | Edit destination file |
+| `+` | Add unmanaged file (fuzzy file picker) |
+| `x` | Forget file (remove from chezmoi) |
 
-| Key     | Action                              |
-| ------- | ----------------------------------- |
-| `Space` | Stage / unstage file                |
-| `a`     | Stage all files                     |
-| `c`     | Commit (opens message input)        |
-| `p`     | Pull from remote                    |
-| `P`     | Push to remote                      |
-| `D`     | Discard changes (with confirmation) |
+</details>
 
-#### General
+<details>
+<summary><strong>Git pane</strong></summary>
 
-| Key | Action              |
-| --- | ------------------- |
-| `r` | Refresh all panes   |
+| Key | Action |
+| --- | --- |
+| `Space` | Stage / unstage file |
+| `a` | Stage all files |
+| `c` | Commit (opens message input) |
+| `p` | Pull from remote |
+| `P` | Push to remote |
+| `D` | Discard changes (with confirmation) |
+
+</details>
+
+<details>
+<summary><strong>General</strong></summary>
+
+| Key | Action |
+| --- | --- |
+| `r` | Refresh all panes |
 | `C` | Edit chezmoi config |
 | `?` | Toggle help overlay |
-| `q` | Quit                |
+| `q` | Quit |
 
-## How it works
+</details>
 
-lazychez wraps the `chezmoi` and `git` CLIs. It runs `chezmoi managed`, `chezmoi status`, and `git status` to populate the panes, then uses `chezmoi diff`, `chezmoi add`, `chezmoi apply`, `git add`, `git commit`, etc. for all operations.
+## Built with
 
-Drift detection compares source and destination states:
-
-- **Source edited** — the chezmoi source has changes not yet applied to `~`
-- **Dest edited** — a file in `~` was changed outside chezmoi
-
-## License
-
-MIT
+- [Go](https://go.dev/)
+- [Bubbletea](https://github.com/charmbracelet/bubbletea) + [Lipgloss](https://github.com/charmbracelet/lipgloss) from the [Charm](https://charm.sh/) ecosystem
