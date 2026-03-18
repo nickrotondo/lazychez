@@ -16,11 +16,11 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	fileTitle := fmt.Sprintf("[1] Managed Files (%d)", m.fileList.FileCount())
+	fileTitle := "[1] Managed Files"
 	if dc := m.fileList.DriftCount(); dc > 0 {
-		fileTitle = fmt.Sprintf("[1] Managed Files (%d) · %d drifted", m.fileList.FileCount(), dc)
+		fileTitle = fmt.Sprintf("[1] Managed Files · %d drifted", dc)
 	}
-	gitTitle := fmt.Sprintf("[2] Source Git (%d)", m.gitStatus.EntryCount())
+	gitTitle := "[2] Source Git"
 	diffTitle := "[0] Diff"
 	if p := m.diffView.Path(); p != "" {
 		diffTitle = fmt.Sprintf("[0] Diff — %s", p)
@@ -80,120 +80,106 @@ func (m Model) viewWide(fileTitle, gitTitle, diffTitle string) string {
 }
 
 // viewNarrow renders the stacked layout (< 100 cols).
-// Each pane sizes to content; the focused pane absorbs surplus.
+// Unfocused panes render as single-line collapsed bars.
 func (m Model) viewNarrow(fileTitle, gitTitle, diffTitle string) string {
 	w := m.width
 	contentHeight := m.height - 2
 
 	fileH, gitH, diffH := m.distributeNarrow(contentHeight)
 
-	fileCur, fileTotal := m.fileList.CursorPosition()
-	fileOff, fileTotalLines := m.fileList.ScrollState()
-	gitCur, gitTotal := m.gitStatus.CursorPosition()
-	gitOff, gitTotalLines := m.gitStatus.ScrollState()
-	diffOff, diffTotalLines := m.diffView.ScrollState()
+	var filePane, gitPane, diffPane string
 
-	filePane := m.renderPane(fileTitle, m.fileList.View(), w, fileH, m.focused == PaneFileList, paneOpts{info: posInfo(fileCur, fileTotal), scrollOff: fileOff, totalLines: fileTotalLines})
-	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), w, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
-	diffPane := m.renderPane(diffTitle, m.diffView.View(), w, diffH, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
+	fileCur, fileTotal := m.fileList.CursorPosition()
+	if fileH == collapsedHeight {
+		filePane = renderCollapsedPane(fileTitle, w, posInfo(fileCur, fileTotal))
+	} else {
+		fileOff, fileTotalLines := m.fileList.ScrollState()
+		filePane = m.renderPane(fileTitle, m.fileList.View(), w, fileH, m.focused == PaneFileList, paneOpts{info: posInfo(fileCur, fileTotal), scrollOff: fileOff, totalLines: fileTotalLines})
+	}
+
+	gitCur, gitTotal := m.gitStatus.CursorPosition()
+	if gitH == collapsedHeight {
+		gitPane = renderCollapsedPane(gitTitle, w, posInfo(gitCur, gitTotal))
+	} else {
+		gitOff, gitTotalLines := m.gitStatus.ScrollState()
+		gitPane = m.renderPane(gitTitle, m.gitStatus.View(), w, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
+	}
+
+	// Diff pane is always rendered as a full pane, never collapsed.
+	diffOff, diffTotalLines := m.diffView.ScrollState()
+	diffPane = m.renderPane(diffTitle, m.diffView.View(), w, diffH, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
 
 	return lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane, diffPane)
 }
 
-// distributeLeftColumn computes heights for the file list and git status
-// panes in wide mode. Each pane gets its content height + chrome, capped at
-// 70% of available. The focused pane absorbs surplus; if neither left pane
-// is focused, surplus goes to file list.
-func (m Model) distributeLeftColumn(available int) (fileH, gitH int) {
-	maxH := available * 70 / 100
+// renderCollapsedPane renders a single-line bar for an unfocused pane in narrow mode.
+// Format: ──[2]─Source Git──────────1 of 5─
+func renderCollapsedPane(title string, width int, info string) string {
+	bc := lipgloss.NewStyle().Foreground(InactiveBorderColor)
+	dash := bc.Render("─")
+	inactive := lipgloss.NewStyle().Bold(true)
 
-	fileDesired := min(m.fileList.ContentLines()+paneChrome, maxH)
-	gitDesired := min(m.gitStatus.ContentLines()+paneChrome, maxH)
-
-	// Ensure minimum
-	fileDesired = max(fileDesired, paneChrome)
-	gitDesired = max(gitDesired, paneChrome)
-
-	total := fileDesired + gitDesired
-
-	if total <= available {
-		// Surplus — give it to the focused left pane, or file list
-		surplus := available - total
-		switch m.focused {
-		case PaneGitStatus:
-			gitDesired += surplus
-		default:
-			fileDesired += surplus
-		}
-		return fileDesired, gitDesired
+	var titleStr string
+	if idx := strings.Index(title, "] "); idx >= 0 {
+		hotkey := title[:idx+1]
+		rest := title[idx+2:]
+		titleStr = inactive.Render(hotkey) + dash + inactive.Render(rest)
+	} else {
+		titleStr = inactive.Render(title)
 	}
 
-	// Over budget — proportionally reduce, respecting minimums
-	fileH = max(paneChrome, available*fileDesired/total)
+	var infoStr string
+	var infoWidth int
+	if info != "" {
+		infoStr = inactive.Render(info) + bc.Render("──")
+		infoWidth = lipgloss.Width(infoStr)
+	}
+
+	titleWidth := lipgloss.Width(titleStr)
+	pad := max(0, width-titleWidth-infoWidth-2)
+	return bc.Render("──") + titleStr + bc.Render(strings.Repeat("─", pad)) + infoStr
+}
+
+// distributeLeftColumn splits the left column 50/50 between file list and
+// git status panes in wide mode.
+func (m Model) distributeLeftColumn(available int) (fileH, gitH int) {
+	fileH = available / 2
 	gitH = available - fileH
-	gitH = max(gitH, paneChrome)
-	fileH = available - gitH
 	return fileH, gitH
 }
 
+// collapsedHeight is the height of an unfocused pane in narrow mode (single-line bar).
+const collapsedHeight = 1
+
 // distributeNarrow computes heights for all three panes in narrow mode.
-// Same content-aware logic: each pane asks for content + chrome, focused
-// pane absorbs surplus.
+// The diff pane always stays visible (never collapses). The "active" side
+// pane (focused, or prevFocused when diff is focused) stays expanded and
+// splits ~50/50 with diff. The other side pane collapses to a single-line bar.
 func (m Model) distributeNarrow(available int) (fileH, gitH, diffH int) {
-	maxH := available * 60 / 100
-
-	fileDesired := min(m.fileList.ContentLines()+paneChrome, maxH)
-	gitDesired := min(m.gitStatus.ContentLines()+paneChrome, maxH)
-	// Diff always wants as much as possible
-	diffDesired := maxH
-
-	fileDesired = max(fileDesired, paneChrome)
-	gitDesired = max(gitDesired, paneChrome)
-	diffDesired = max(diffDesired, paneChrome)
-
-	total := fileDesired + gitDesired + diffDesired
-
-	if total <= available {
-		surplus := available - total
-		switch m.focused {
-		case PaneFileList:
-			fileDesired += surplus
-		case PaneGitStatus:
-			gitDesired += surplus
-		default:
-			diffDesired += surplus
-		}
-		return fileDesired, gitDesired, diffDesired
+	// Determine which side pane stays expanded.
+	activeSide := m.focused
+	if activeSide == PaneDiff {
+		activeSide = m.prevFocused
 	}
 
-	// Over budget — give focused pane its desired, compress others
-	focusedH := maxH
-	var otherA, otherB *int
-	switch m.focused {
-	case PaneFileList:
-		fileDesired = focusedH
-		otherA, otherB = &gitDesired, &diffDesired
-	case PaneGitStatus:
-		gitDesired = focusedH
-		otherA, otherB = &fileDesired, &diffDesired
-	default:
-		diffDesired = focusedH
-		otherA, otherB = &fileDesired, &gitDesired
-	}
+	remaining := available - collapsedHeight
+	sideH := remaining / 2
+	diffH = remaining - sideH
 
-	remaining := available - focusedH
-	aRatio := *otherA
-	bRatio := *otherB
-	ratioTotal := aRatio + bRatio
-	if ratioTotal > 0 {
-		*otherA = max(paneChrome, remaining*aRatio/ratioTotal)
-		*otherB = max(paneChrome, remaining-*otherA)
+	if activeSide == PaneFileList {
+		fileH = sideH
+		gitH = collapsedHeight
 	} else {
-		*otherA = remaining / 2
-		*otherB = remaining - *otherA
+		gitH = sideH
+		fileH = collapsedHeight
 	}
 
-	return fileDesired, gitDesired, diffDesired
+	// Safety: ensure diff always has at least paneChrome height.
+	if diffH < paneChrome {
+		diffH = paneChrome
+	}
+
+	return fileH, gitH, diffH
 }
 
 type paneOpts struct {
@@ -294,6 +280,14 @@ func (m Model) renderPane(title, content string, width, height int, active bool,
 }
 
 func (m Model) renderStatusBar() string {
+	// Show "No matches" when filter is active with zero results
+	if m.focused == PaneFileList &&
+		m.fileList.IsFiltering() &&
+		m.fileList.FilterQuery() != "" &&
+		!m.fileList.FilterHasMatches() {
+		return StatusBarError.Width(m.width).Render("No matches")
+	}
+
 	if m.statusMsg == "" {
 		return ""
 	}
@@ -305,6 +299,24 @@ func (m Model) renderStatusBar() string {
 }
 
 func (m Model) renderFooter() string {
+	// Filter typing mode replaces the footer with a text input
+	if m.focused == PaneFileList && m.fileList.IsFiltering() {
+		fi := m.fileList.filterInput
+		fi.Width = max(0, m.width-4)
+		return " " + fi.View()
+	}
+
+	// Locked filter mode shows a persistent indicator
+	if m.focused == PaneFileList && m.fileList.IsFilterLocked() {
+		query := m.fileList.FilterQuery()
+		count := m.fileList.FileCount()
+		indicator := HelpDesc.Render(fmt.Sprintf(" Filter: %d matches for ", count)) +
+			HelpKey.Render("'"+query+"'") +
+			HelpSep.Render(" | ") +
+			HelpKey.Render("<esc>") + " " + HelpDesc.Render("exit filter mode")
+		return indicator
+	}
+
 	sep := HelpSep.Render(" | ")
 	hint := func(key, desc string) string {
 		return HelpKey.Render(key) + " " + HelpDesc.Render(desc)
@@ -319,16 +331,19 @@ func (m Model) renderFooter() string {
 			paneHints = []string{
 				hint("space", "add (dest → source)"), hint("a", "apply"),
 				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
+				hint("/", "filter"),
 			}
 		case sel != nil && sel.Drift == DriftSourceEdited:
 			paneHints = []string{
 				hint("a", "apply (source → dest)"), hint("space", "add"),
 				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
+				hint("/", "filter"),
 			}
 		default:
 			paneHints = []string{
 				hint("space", "add"), hint("a", "apply"),
 				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
+				hint("/", "filter"),
 			}
 		}
 	case PaneGitStatus:
@@ -345,7 +360,7 @@ func (m Model) renderFooter() string {
 	}
 
 	allHints := append(paneHints, globalHints...)
-	right := hyperlink("https://github.com/nickrotondo/lazychez", FooterLink.Render("lazychez")) + " "
+	right := hyperlink("https://github.com/nickrotondo/lazychez", FooterLink.Render("lazychez")) + " " + lipgloss.NewStyle().Foreground(TextColor).Render(m.version) + " "
 	rightWidth := lipgloss.Width(right)
 	ellipsis := HelpSep.Render(" | ") + HelpDesc.Render("…")
 
@@ -375,7 +390,7 @@ func (m Model) renderOverlay(background, overlay string) string {
 }
 
 func (m Model) helpContent() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e9f6fb"))
+	title := lipgloss.NewStyle().Bold(true).Foreground(TextColor)
 	heading := lipgloss.NewStyle().Foreground(ActiveBorderColor)
 
 	return title.Render("Keybindings") + "\n\n" +
@@ -407,6 +422,11 @@ func (m Model) helpContent() string {
     p           Pull from remote
     P           Push to remote
     D           Discard changes
+` + "\n" +
+		heading.Render("  Filter (File List)") + `
+    /           Start filtering files
+    enter       Lock filter (navigate matches)
+    esc         Cancel / exit filter mode
 ` + "\n" +
 		heading.Render("  General") + `
     r           Refresh all panes
@@ -507,7 +527,7 @@ func (m Model) renderConfirmGitDiscard() string {
 // posInfo formats a "X of Y" string, or empty if total is 0.
 func posInfo(current, total int) string {
 	if total == 0 {
-		return ""
+		return "0"
 	}
 	return fmt.Sprintf("%d of %d", current, total)
 }

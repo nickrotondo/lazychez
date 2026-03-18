@@ -16,6 +16,7 @@ lazychez gives chezmoi a proper terminal UI. Browse your managed files, see exac
 - **Inline diffs** — syntax-highlighted, scrollable, right there in your terminal
 - **Full git workflow built in** — stage, commit, push, pull without switching tools
 - **Fuzzy file picker** — add unmanaged files to chezmoi without typing paths
+- **Fuzzy file filter** — type `/` to narrow the file list instantly, lock the filter with `Enter`, work on just the matches
 - **Forget files** — remove files from chezmoi management when you're done with them
 - **Responsive layout** — side-by-side on wide terminals, stacked on narrow ones
 - **Vim-style navigation** — btw
@@ -111,6 +112,9 @@ lazychez wraps the `chezmoi` and `git` CLIs under the hood. It calls `chezmoi ma
 | `E`     | Edit destination file                   |
 | `+`     | Add unmanaged file (fuzzy file picker)  |
 | `x`     | Forget file (remove from chezmoi)       |
+| `/`     | Filter files (fuzzy search)             |
+| `Enter` | Lock filter (work on filtered matches)  |
+| `Esc`   | Cancel / exit filter                    |
 
 </details>
 

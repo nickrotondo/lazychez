@@ -70,11 +70,13 @@ type Model struct {
 	// Diff cache: home-relative path → diff output (loaded once, refreshed on operations)
 	diffCache map[string]string
 
+	version string
+
 	chezmoi chezmoi.Runner
 	git     git.Runner
 }
 
-func New(chezmoiRunner chezmoi.Runner, gitRunner git.Runner) Model {
+func New(chezmoiRunner chezmoi.Runner, gitRunner git.Runner, version string) Model {
 	ti := textinput.New()
 	ti.Placeholder = "commit message..."
 	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(MutedColor)
@@ -87,6 +89,7 @@ func New(chezmoiRunner chezmoi.Runner, gitRunner git.Runner) Model {
 		diffView:    NewDiffViewModel(),
 		commitInput: ti,
 		diffCache:   make(map[string]string),
+		version:     version,
 		chezmoi:     chezmoiRunner,
 		git:         gitRunner,
 	}
@@ -357,6 +360,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// File list filter typing mode — capture all keys before global handlers
+	if m.focused == PaneFileList && m.fileList.IsFiltering() {
+		return m.handleFileListFilterKey(msg)
+	}
+
 	// Global keys
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -429,6 +437,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Esc exits locked filter mode
+	if m.fileList.IsFilterLocked() && msg.String() == "esc" {
+		m.fileList.CancelFilter()
+		return m, m.fetchDiffForSelected()
+	}
+
 	prevPath := m.fileList.SelectedPath()
 
 	switch msg.String() {
@@ -498,6 +512,9 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, applyFile(m.chezmoi, sel.Path)
 			}
 		}
+	case "/":
+		m.fileList.StartFilter()
+		return m, textinput.Blink
 	}
 
 	if newPath := m.fileList.SelectedPath(); newPath != prevPath && newPath != "" {
@@ -608,6 +625,24 @@ func (m Model) handleAddFileKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m Model) handleFileListFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.fileList.CancelFilter()
+		return m, nil
+	case "enter":
+		if m.fileList.LockFilter() {
+			return m, m.fetchDiffForSelected()
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.fileList.filterInput, cmd = m.fileList.filterInput.Update(msg)
+	m.fileList.applyFilter()
+	return m, cmd
+}
+
 // --- Internal helpers ---
 
 func (m *Model) initHelpViewport() {
@@ -660,9 +695,17 @@ func (m *Model) updateDimensionsNarrow() {
 
 	fileH, gitH, diffH := m.distributeNarrow(contentHeight)
 
-	m.fileList.SetDimensions(innerW, max(0, fileH-paneChrome))
-	m.gitStatus.SetDimensions(innerW, max(0, gitH-paneChrome))
-	m.diffView.SetDimensions(innerW, max(0, diffH-paneChrome))
+	// Collapsed panes (height=1) get 0 inner content space.
+	narrowInner := func(h int) int {
+		if h <= collapsedHeight {
+			return 0
+		}
+		return max(0, h-paneChrome)
+	}
+
+	m.fileList.SetDimensions(innerW, narrowInner(fileH))
+	m.gitStatus.SetDimensions(innerW, narrowInner(gitH))
+	m.diffView.SetDimensions(innerW, narrowInner(diffH))
 }
 
 func (m *Model) syncFocus() {

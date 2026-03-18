@@ -7,6 +7,9 @@ var (
 	ActiveBorderColor   = lipgloss.Color("#81cae4")
 	InactiveBorderColor = lipgloss.Color("#5a7a86")
 
+	// Text color (soft white)
+	TextColor = lipgloss.Color("#E9F6FB")
+
 	// Semantic colors
 	ModifiedColor = lipgloss.Color("#e4cd81")
 	AddedColor    = lipgloss.Color("#98e481")
@@ -42,7 +45,7 @@ var (
 			Background(SelectedBg).
 			Bold(true)
 
-	NormalItem = lipgloss.NewStyle()
+	NormalItem = lipgloss.NewStyle().Foreground(TextColor)
 
 	// Status indicators
 	SourceEditedIndicator = lipgloss.NewStyle().Foreground(ModifiedColor).SetString("●") // source changed → apply
@@ -60,11 +63,11 @@ var (
 	HelpKey  = lipgloss.NewStyle().Foreground(ActiveBorderColor).Bold(true)
 	HelpDesc = lipgloss.NewStyle().Foreground(MutedColor)
 	HelpSep  = lipgloss.NewStyle().Foreground(MutedColor)
-	FooterLink = lipgloss.NewStyle().Foreground(lipgloss.Color("#e9f6fb"))
+	FooterLink = lipgloss.NewStyle().Foreground(TextColor).Underline(true)
 
 	// Status bar
 	StatusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#e9f6fb"))
+			Foreground(TextColor)
 	StatusBarError = lipgloss.NewStyle().
 			Foreground(ErrorColor)
 	StatusBarSuccess = lipgloss.NewStyle().

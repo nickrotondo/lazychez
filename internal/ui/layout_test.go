@@ -24,7 +24,6 @@ func TestDistributeLeftColumn(t *testing.T) {
 	makeModel := func(focused PaneID, fileContentLines, gitContentLines int) Model {
 		m, _, _ := newTestModel()
 		m.focused = focused
-		// Set files directly to control ContentLines()
 		files := make([]FileItem, fileContentLines)
 		for i := range files {
 			files[i] = FileItem{Path: "f"}
@@ -38,68 +37,35 @@ func TestDistributeLeftColumn(t *testing.T) {
 		return m
 	}
 
-	t.Run("surplus to file list when file list focused", func(t *testing.T) {
+	t.Run("even split regardless of focus", func(t *testing.T) {
+		for _, focused := range []PaneID{PaneFileList, PaneGitStatus, PaneDiff} {
+			m := makeModel(focused, 5, 3)
+			fileH, gitH := m.distributeLeftColumn(30)
+			if fileH != 15 {
+				t.Errorf("focused=%d: fileH = %d, want 15", focused, fileH)
+			}
+			if gitH != 15 {
+				t.Errorf("focused=%d: gitH = %d, want 15", focused, gitH)
+			}
+		}
+	})
+
+	t.Run("odd available rounds correctly", func(t *testing.T) {
 		m := makeModel(PaneFileList, 5, 3)
-		fileH, gitH := m.distributeLeftColumn(30)
-		gitExpected := 3 + paneChrome // git gets its content + chrome
-		if gitH != gitExpected {
-			t.Errorf("gitH = %d, want %d", gitH, gitExpected)
+		fileH, gitH := m.distributeLeftColumn(31)
+		if fileH+gitH != 31 {
+			t.Errorf("sum = %d, want 31", fileH+gitH)
 		}
-		if fileH+gitH != 30 {
-			t.Errorf("fileH(%d) + gitH(%d) = %d, want 30", fileH, gitH, fileH+gitH)
-		}
-		// file should get surplus
-		if fileH <= 5+paneChrome {
-			t.Errorf("fileH = %d, should be > %d (content+chrome) due to surplus", fileH, 5+paneChrome)
+		if fileH != 15 || gitH != 16 {
+			t.Errorf("fileH=%d gitH=%d, want 15 and 16", fileH, gitH)
 		}
 	})
 
-	t.Run("surplus to git when git focused", func(t *testing.T) {
-		m := makeModel(PaneGitStatus, 5, 3)
-		fileH, gitH := m.distributeLeftColumn(30)
-		fileExpected := 5 + paneChrome
-		if fileH != fileExpected {
-			t.Errorf("fileH = %d, want %d", fileH, fileExpected)
-		}
-		if fileH+gitH != 30 {
-			t.Errorf("sum = %d, want 30", fileH+gitH)
-		}
-	})
-
-	t.Run("surplus to file list when diff focused", func(t *testing.T) {
-		m := makeModel(PaneDiff, 5, 3)
-		fileH, gitH := m.distributeLeftColumn(30)
-		gitExpected := 3 + paneChrome
-		if gitH != gitExpected {
-			t.Errorf("gitH = %d, want %d", gitH, gitExpected)
-		}
-		if fileH+gitH != 30 {
-			t.Errorf("sum = %d, want 30", fileH+gitH)
-		}
-	})
-
-	t.Run("cap at 70 percent", func(t *testing.T) {
-		m := makeModel(PaneFileList, 100, 100)
+	t.Run("ignores content lines", func(t *testing.T) {
+		m := makeModel(PaneFileList, 100, 0)
 		fileH, gitH := m.distributeLeftColumn(20)
-		maxH := 20 * 70 / 100
-		// In over-budget scenario, each pane should be reasonable
-		if fileH+gitH != 20 {
-			t.Errorf("sum = %d, want 20", fileH+gitH)
-		}
-		// Neither should exceed 70% of available
-		if fileH > maxH+1 || gitH > maxH+1 {
-			t.Errorf("fileH=%d or gitH=%d exceeds max %d", fileH, gitH, maxH)
-		}
-	})
-
-	t.Run("minimum chrome", func(t *testing.T) {
-		m := makeModel(PaneFileList, 0, 0)
-		fileH, gitH := m.distributeLeftColumn(10)
-		if fileH < paneChrome {
-			t.Errorf("fileH = %d, should be >= paneChrome(%d)", fileH, paneChrome)
-		}
-		if gitH < paneChrome {
-			t.Errorf("gitH = %d, should be >= paneChrome(%d)", gitH, paneChrome)
+		if fileH != 10 || gitH != 10 {
+			t.Errorf("fileH=%d gitH=%d, want 10 and 10", fileH, gitH)
 		}
 	})
 
@@ -143,39 +109,75 @@ func TestDistributeNarrow(t *testing.T) {
 		return m
 	}
 
-	t.Run("surplus to file list when focused", func(t *testing.T) {
+	t.Run("file focused: git collapses, diff stays visible", func(t *testing.T) {
 		m := makeModel(PaneFileList, 3, 3)
 		fileH, gitH, diffH := m.distributeNarrow(60)
-		if fileH <= gitH {
-			t.Errorf("fileH(%d) should be > gitH(%d) since file list is focused", fileH, gitH)
+		if gitH != collapsedHeight {
+			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
 		}
-		if fileH+gitH+diffH != 60 {
-			t.Errorf("sum = %d, want 60", fileH+gitH+diffH)
+		// Diff should get roughly half, not collapse
+		remaining := 60 - collapsedHeight
+		wantFile := remaining / 2
+		wantDiff := remaining - wantFile
+		if fileH != wantFile {
+			t.Errorf("fileH = %d, want %d", fileH, wantFile)
+		}
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
 		}
 	})
 
-	t.Run("surplus to diff when focused", func(t *testing.T) {
+	t.Run("diff focused: prevFocused side pane stays expanded", func(t *testing.T) {
 		m := makeModel(PaneDiff, 3, 3)
+		m.prevFocused = PaneFileList
 		fileH, gitH, diffH := m.distributeNarrow(60)
-		if diffH <= fileH || diffH <= gitH {
-			t.Errorf("diffH(%d) should be > fileH(%d) and gitH(%d)", diffH, fileH, gitH)
+		// File list was prevFocused, so it stays expanded
+		if gitH != collapsedHeight {
+			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
 		}
-		if fileH+gitH+diffH != 60 {
-			t.Errorf("sum = %d, want 60", fileH+gitH+diffH)
+		remaining := 60 - collapsedHeight
+		wantFile := remaining / 2
+		wantDiff := remaining - wantFile
+		if fileH != wantFile {
+			t.Errorf("fileH = %d, want %d", fileH, wantFile)
+		}
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
 		}
 	})
 
-	t.Run("minimum chrome for all panes", func(t *testing.T) {
-		m := makeModel(PaneFileList, 0, 0)
-		fileH, gitH, diffH := m.distributeNarrow(10)
-		if fileH < paneChrome {
-			t.Errorf("fileH = %d, should be >= %d", fileH, paneChrome)
+	t.Run("diff focused with prevFocused=git", func(t *testing.T) {
+		m := makeModel(PaneDiff, 3, 3)
+		m.prevFocused = PaneGitStatus
+		fileH, gitH, diffH := m.distributeNarrow(60)
+		if fileH != collapsedHeight {
+			t.Errorf("fileH = %d, want %d", fileH, collapsedHeight)
 		}
-		if gitH < paneChrome {
-			t.Errorf("gitH = %d, should be >= %d", gitH, paneChrome)
+		remaining := 60 - collapsedHeight
+		wantGit := remaining / 2
+		wantDiff := remaining - wantGit
+		if gitH != wantGit {
+			t.Errorf("gitH = %d, want %d", gitH, wantGit)
 		}
-		if diffH < paneChrome {
-			t.Errorf("diffH = %d, should be >= %d", diffH, paneChrome)
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
+		}
+	})
+
+	t.Run("git focused: file collapses, diff stays visible", func(t *testing.T) {
+		m := makeModel(PaneGitStatus, 3, 3)
+		fileH, gitH, diffH := m.distributeNarrow(40)
+		if fileH != collapsedHeight {
+			t.Errorf("fileH = %d, want %d", fileH, collapsedHeight)
+		}
+		remaining := 40 - collapsedHeight
+		wantGit := remaining / 2
+		wantDiff := remaining - wantGit
+		if gitH != wantGit {
+			t.Errorf("gitH = %d, want %d", gitH, wantGit)
+		}
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
 		}
 	})
 
@@ -200,4 +202,65 @@ func TestDistributeNarrow(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestRenderCollapsedPane(t *testing.T) {
+	t.Run("correct width without info", func(t *testing.T) {
+		line := renderCollapsedPane("[2] Source Git", 40, "")
+		if w := len([]rune(stripAnsi(line))); w != 40 {
+			t.Errorf("collapsed pane width = %d, want 40", w)
+		}
+	})
+
+	t.Run("correct width with info", func(t *testing.T) {
+		line := renderCollapsedPane("[2] Source Git", 40, "1 of 5")
+		if w := len([]rune(stripAnsi(line))); w != 40 {
+			t.Errorf("collapsed pane width = %d, want 40", w)
+		}
+	})
+
+	t.Run("contains title and info", func(t *testing.T) {
+		line := renderCollapsedPane("[2] Source Git", 50, "1 of 5")
+		stripped := stripAnsi(line)
+		if !contains(stripped, "[2]") || !contains(stripped, "Source Git") {
+			t.Errorf("collapsed pane missing title parts: %q", stripped)
+		}
+		if !contains(stripped, "1 of 5") {
+			t.Errorf("collapsed pane missing info: %q", stripped)
+		}
+	})
+}
+
+// stripAnsi removes ANSI escape sequences for width testing.
+func stripAnsi(s string) string {
+	var out []byte
+	i := 0
+	for i < len(s) {
+		if s[i] == '\033' {
+			// Skip until 'm' (SGR) or end of sequence
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			if i < len(s) {
+				i++ // skip 'm'
+			}
+		} else {
+			out = append(out, s[i])
+			i++
+		}
+	}
+	return string(out)
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

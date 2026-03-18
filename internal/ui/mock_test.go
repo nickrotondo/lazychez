@@ -176,7 +176,7 @@ func (m *mockGitRunner) Clean(_ context.Context, path string) error {
 func newTestModel() (Model, *mockChezmoiRunner, *mockGitRunner) {
 	cm := newMockChezmoi()
 	g := newMockGit()
-	m := New(cm, g)
+	m := New(cm, g, "dev")
 	m.width = 120
 	m.height = 40
 	m.updateDimensions()

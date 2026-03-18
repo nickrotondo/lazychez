@@ -452,3 +452,361 @@ func TestFileListModel_SetFiles(t *testing.T) {
 		}
 	})
 }
+
+// makeFilterModel creates a FileListModel pre-loaded with files for filter tests.
+// Files: .bashrc (dest edited), .zshrc (source edited), .vimrc (synced), .gitconfig (synced)
+func makeFilterModel() FileListModel {
+	m := NewFileListModel()
+	m.SetDimensions(80, 20)
+	m.SetFiles([]FileItem{
+		{Path: ".bashrc", SourceRelPath: "dot_bashrc", SourceState: ' ', DestState: 'M', Drift: DriftDestEdited},
+		{Path: ".zshrc", SourceRelPath: "dot_zshrc", SourceState: 'M', DestState: ' ', Drift: DriftSourceEdited},
+		{Path: ".vimrc", SourceRelPath: "dot_vimrc", SourceState: ' ', DestState: ' ', Drift: DriftNone},
+		{Path: ".gitconfig", SourceRelPath: "dot_gitconfig", SourceState: ' ', DestState: ' ', Drift: DriftNone},
+	})
+	return m
+}
+
+func TestFilter_FuzzyMatching(t *testing.T) {
+	t.Run("exact substring match", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("zsh")
+		m.applyFilter()
+
+		if m.FileCount() != 1 {
+			t.Fatalf("FileCount() = %d, want 1", m.FileCount())
+		}
+		if m.SelectedPath() != ".zshrc" {
+			t.Errorf("SelectedPath() = %q, want .zshrc", m.SelectedPath())
+		}
+	})
+
+	t.Run("fuzzy match across characters", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("brc")
+		m.applyFilter()
+
+		// Should match .bashrc and .zshrc (both contain b/r/c or similar fuzzy patterns)
+		if m.FileCount() < 1 {
+			t.Fatalf("FileCount() = %d, want >= 1", m.FileCount())
+		}
+	})
+
+	t.Run("case insensitive matching", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("ZSH")
+		m.applyFilter()
+
+		if m.FileCount() != 1 {
+			t.Fatalf("FileCount() = %d, want 1", m.FileCount())
+		}
+		if m.SelectedPath() != ".zshrc" {
+			t.Errorf("SelectedPath() = %q, want .zshrc", m.SelectedPath())
+		}
+	})
+
+	t.Run("multiple matches", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("rc")
+		m.applyFilter()
+
+		// .bashrc, .zshrc, .vimrc all contain "rc"
+		if m.FileCount() < 3 {
+			t.Fatalf("FileCount() = %d, want >= 3", m.FileCount())
+		}
+	})
+}
+
+func TestFilter_EmptyQuery(t *testing.T) {
+	m := makeFilterModel()
+	totalBefore := m.FileCount()
+
+	m.StartFilter()
+	m.filterInput.SetValue("")
+	m.applyFilter()
+
+	if m.FileCount() != totalBefore {
+		t.Errorf("FileCount() = %d, want %d (all items)", m.FileCount(), totalBefore)
+	}
+}
+
+func TestFilter_NoMatches(t *testing.T) {
+	m := makeFilterModel()
+	m.StartFilter()
+	m.filterInput.SetValue("zzzznotafile")
+	m.applyFilter()
+
+	if m.FileCount() != 0 {
+		t.Errorf("FileCount() = %d, want 0", m.FileCount())
+	}
+	if m.FilterHasMatches() {
+		t.Error("FilterHasMatches() = true, want false")
+	}
+}
+
+func TestFilter_NavigationLocked(t *testing.T) {
+	t.Run("j/k navigate only filtered items", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		// Match two items: .bashrc and .zshrc (both contain "sh")
+		m.filterInput.SetValue("sh")
+		m.applyFilter()
+
+		if m.FileCount() != 2 {
+			t.Fatalf("FileCount() = %d, want 2", m.FileCount())
+		}
+
+		locked := m.LockFilter()
+		if !locked {
+			t.Fatal("LockFilter() returned false")
+		}
+
+		// Cursor should be on first match
+		first := m.SelectedPath()
+		m.MoveDown()
+		second := m.SelectedPath()
+
+		if first == second {
+			t.Error("MoveDown did not change selected path")
+		}
+
+		// MoveDown again should be no-op (only 2 items)
+		m.MoveDown()
+		if m.SelectedPath() != second {
+			t.Errorf("MoveDown past last item changed path to %q", m.SelectedPath())
+		}
+
+		// MoveUp back to first
+		m.MoveUp()
+		if m.SelectedPath() != first {
+			t.Errorf("MoveUp should return to %q, got %q", first, m.SelectedPath())
+		}
+	})
+}
+
+func TestFilter_EscDuringTyping(t *testing.T) {
+	m := makeFilterModel()
+	totalBefore := m.FileCount()
+	m.cursor = 3 // put cursor on a specific item
+	cursorBefore := m.cursor
+
+	m.StartFilter()
+	m.filterInput.SetValue("zsh")
+	m.applyFilter()
+
+	if m.FileCount() == totalBefore {
+		t.Fatal("filter should have reduced visible items")
+	}
+
+	m.CancelFilter()
+
+	if m.filterMode != FilterInactive {
+		t.Errorf("filterMode = %d, want FilterInactive", m.filterMode)
+	}
+	if m.FileCount() != totalBefore {
+		t.Errorf("FileCount() = %d, want %d (restored)", m.FileCount(), totalBefore)
+	}
+	if m.cursor != cursorBefore {
+		t.Errorf("cursor = %d, want %d (restored)", m.cursor, cursorBefore)
+	}
+}
+
+func TestFilter_EnterLocks(t *testing.T) {
+	t.Run("lock with matches", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("vim")
+		m.applyFilter()
+
+		locked := m.LockFilter()
+		if !locked {
+			t.Fatal("LockFilter() returned false")
+		}
+		if m.filterMode != FilterLocked {
+			t.Errorf("filterMode = %d, want FilterLocked", m.filterMode)
+		}
+		if !m.IsFilterLocked() {
+			t.Error("IsFilterLocked() = false")
+		}
+		// Cursor should be on first match
+		if m.SelectedPath() != ".vimrc" {
+			t.Errorf("SelectedPath() = %q, want .vimrc", m.SelectedPath())
+		}
+	})
+
+	t.Run("lock with no matches is no-op", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("zzzznotafile")
+		m.applyFilter()
+
+		locked := m.LockFilter()
+		if locked {
+			t.Error("LockFilter() should return false when no matches")
+		}
+		if m.filterMode != FilterTyping {
+			t.Errorf("filterMode = %d, want FilterTyping (unchanged)", m.filterMode)
+		}
+	})
+}
+
+func TestFilter_EscDuringLocked(t *testing.T) {
+	m := makeFilterModel()
+	totalBefore := m.FileCount()
+
+	m.StartFilter()
+	m.filterInput.SetValue("vim")
+	m.applyFilter()
+	m.LockFilter()
+
+	if m.IsFilterLocked() != true {
+		t.Fatal("expected locked filter mode")
+	}
+
+	m.CancelFilter()
+
+	if m.filterMode != FilterInactive {
+		t.Errorf("filterMode = %d, want FilterInactive", m.filterMode)
+	}
+	if m.FileCount() != totalBefore {
+		t.Errorf("FileCount() = %d, want %d", m.FileCount(), totalBefore)
+	}
+}
+
+func TestFilter_ClearsOnDataRefresh(t *testing.T) {
+	m := makeFilterModel()
+	m.StartFilter()
+	m.filterInput.SetValue("vim")
+	m.applyFilter()
+	m.LockFilter()
+
+	// Simulate data refresh by calling SetFiles (which is what ManagedFilesMsg triggers)
+	m.SetFiles([]FileItem{
+		{Path: ".bashrc", SourceState: ' ', DestState: ' ', Drift: DriftNone},
+		{Path: ".newfile", SourceState: ' ', DestState: ' ', Drift: DriftNone},
+	})
+
+	if m.filterMode != FilterInactive {
+		t.Errorf("filterMode = %d, want FilterInactive after SetFiles", m.filterMode)
+	}
+	if m.FileCount() != 2 {
+		t.Errorf("FileCount() = %d, want 2", m.FileCount())
+	}
+}
+
+func TestFilter_GroupHeadingsHidden(t *testing.T) {
+	m := makeFilterModel()
+	m.StartFilter()
+	// Match only synced files (no drift)
+	m.filterInput.SetValue("vim")
+	m.applyFilter()
+
+	// Only .vimrc should match — it's in the "synced" group
+	if m.FileCount() != 1 {
+		t.Fatalf("FileCount() = %d, want 1", m.FileCount())
+	}
+
+	// Check that no dest-edited or source-edited headings appear
+	for _, f := range m.files {
+		if f.IsHeading && f.HeadingText != headingText(DriftNone) {
+			t.Errorf("unexpected heading %q visible in filtered list", f.HeadingText)
+		}
+	}
+}
+
+func TestFilter_FileOperationsOnFilteredItems(t *testing.T) {
+	m := makeFilterModel()
+	m.StartFilter()
+	m.filterInput.SetValue("bashrc")
+	m.applyFilter()
+	m.LockFilter()
+
+	// SelectedItem should return the filtered item, not a different one
+	item := m.SelectedItem()
+	if item == nil {
+		t.Fatal("SelectedItem() = nil")
+	}
+	if item.Path != ".bashrc" {
+		t.Errorf("SelectedItem().Path = %q, want .bashrc", item.Path)
+	}
+	if item.Drift != DriftDestEdited {
+		t.Errorf("SelectedItem().Drift = %d, want DriftDestEdited", item.Drift)
+	}
+}
+
+func TestFilter_ModeTransitions(t *testing.T) {
+	t.Run("inactive → typing → locked → inactive", func(t *testing.T) {
+		m := makeFilterModel()
+
+		if m.filterMode != FilterInactive {
+			t.Fatalf("initial filterMode = %d, want FilterInactive", m.filterMode)
+		}
+
+		m.StartFilter()
+		if m.filterMode != FilterTyping {
+			t.Fatalf("after StartFilter: filterMode = %d, want FilterTyping", m.filterMode)
+		}
+		if !m.IsFiltering() {
+			t.Error("IsFiltering() = false after StartFilter")
+		}
+
+		m.filterInput.SetValue("vim")
+		m.applyFilter()
+		m.LockFilter()
+		if m.filterMode != FilterLocked {
+			t.Fatalf("after LockFilter: filterMode = %d, want FilterLocked", m.filterMode)
+		}
+
+		m.CancelFilter()
+		if m.filterMode != FilterInactive {
+			t.Fatalf("after CancelFilter: filterMode = %d, want FilterInactive", m.filterMode)
+		}
+	})
+
+	t.Run("inactive → typing → cancel → inactive", func(t *testing.T) {
+		m := makeFilterModel()
+		m.StartFilter()
+		m.filterInput.SetValue("zsh")
+		m.applyFilter()
+
+		m.CancelFilter()
+		if m.filterMode != FilterInactive {
+			t.Errorf("filterMode = %d, want FilterInactive", m.filterMode)
+		}
+		if m.IsFiltering() {
+			t.Error("IsFiltering() = true after cancel")
+		}
+		if m.IsFilterLocked() {
+			t.Error("IsFilterLocked() = true after cancel")
+		}
+	})
+}
+
+func TestFilter_CursorPosition(t *testing.T) {
+	m := makeFilterModel()
+	m.StartFilter()
+	m.filterInput.SetValue("sh")
+	m.applyFilter()
+	m.LockFilter()
+
+	current, total := m.CursorPosition()
+	if total != 2 {
+		t.Errorf("total = %d, want 2", total)
+	}
+	if current != 1 {
+		t.Errorf("current = %d, want 1 (first match)", current)
+	}
+
+	m.MoveDown()
+	current, total = m.CursorPosition()
+	if current != 2 {
+		t.Errorf("after MoveDown: current = %d, want 2", current)
+	}
+	if total != 2 {
+		t.Errorf("after MoveDown: total = %d, want 2", total)
+	}
+}

@@ -4,8 +4,19 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/sahilm/fuzzy"
+
 	"github.com/nickrotondo/lazychez/internal/chezmoi"
+)
+
+type FilterMode int
+
+const (
+	FilterInactive FilterMode = iota
+	FilterTyping
+	FilterLocked
 )
 
 type DriftKind int
@@ -44,12 +55,18 @@ func (f FileItem) HasDrift() bool {
 }
 
 type FileListModel struct {
-	files   []FileItem
-	cursor  int
-	offset  int // scroll offset for viewport
-	focused bool
-	width   int
-	height  int
+	files    []FileItem
+	allItems []FileItem // raw items without headings, for filtering
+	cursor   int
+	offset   int // scroll offset for viewport
+	focused  bool
+	width    int
+	height   int
+
+	// Filter state
+	filterMode  FilterMode
+	filterInput textinput.Model
+	savedCursor int // cursor position before filter was activated
 }
 
 func NewFileListModel() FileListModel {
@@ -57,6 +74,8 @@ func NewFileListModel() FileListModel {
 }
 
 func (m *FileListModel) SetFiles(files []FileItem) {
+	m.allItems = files
+	m.filterMode = FilterInactive
 	m.files = insertHeadings(files)
 	// Clamp cursor if file list shrunk
 	if m.cursor >= len(m.files) {
@@ -264,7 +283,7 @@ func (m FileListModel) View() string {
 			continue
 		}
 
-		selected := i == m.cursor && m.focused
+		selected := i == m.cursor && m.focused && m.filterMode != FilterTyping
 
 		// Determine indicator style — when selected, merge with selection background
 		// so the inner ANSI reset doesn't kill the highlight.
@@ -441,6 +460,95 @@ func headingText(d DriftKind) string {
 		return "source edited · a to apply"
 	default:
 		return "synced"
+	}
+}
+
+// --- Filter methods ---
+
+func (m FileListModel) IsFiltering() bool {
+	return m.filterMode == FilterTyping
+}
+
+func (m FileListModel) IsFilterLocked() bool {
+	return m.filterMode == FilterLocked
+}
+
+func (m *FileListModel) LockFilter() bool {
+	// Only lock if there are actual file matches
+	if m.FileCount() == 0 {
+		return false
+	}
+	m.filterMode = FilterLocked
+	m.filterInput.Blur()
+	m.cursor = 0
+	m.snapCursorToFile()
+	m.offset = 0
+	m.clampOffset()
+	return true
+}
+
+func (m FileListModel) FilterHasMatches() bool {
+	return m.FileCount() > 0
+}
+
+func (m FileListModel) FilterQuery() string {
+	return m.filterInput.Value()
+}
+
+func (m *FileListModel) StartFilter() {
+	m.filterMode = FilterTyping
+	m.savedCursor = m.cursor
+	m.filterInput = textinput.New()
+	m.filterInput.Prompt = "/ "
+	m.filterInput.PromptStyle = HelpKey
+	m.filterInput.Focus()
+}
+
+func (m *FileListModel) CancelFilter() {
+	m.filterMode = FilterInactive
+	m.filterInput.Blur()
+	m.files = insertHeadings(m.allItems)
+	m.cursor = m.savedCursor
+	if m.cursor >= len(m.files) {
+		m.cursor = max(0, len(m.files)-1)
+	}
+	m.snapCursorToFile()
+	m.clampOffset()
+}
+
+func (m *FileListModel) applyFilter() {
+	query := m.filterInput.Value()
+	if query == "" {
+		m.files = insertHeadings(m.allItems)
+		m.filterInput.TextStyle = lipgloss.NewStyle()
+		m.cursor = 0
+		m.snapCursorToFile()
+		m.clampOffset()
+		return
+	}
+
+	paths := make([]string, len(m.allItems))
+	for i, f := range m.allItems {
+		paths[i] = f.Path
+	}
+
+	matches := fuzzy.Find(query, paths)
+	filtered := make([]FileItem, len(matches))
+	for i, match := range matches {
+		filtered[i] = m.allItems[match.Index]
+	}
+
+	m.files = insertHeadings(filtered)
+	m.cursor = 0
+	m.snapCursorToFile()
+	m.offset = 0
+	m.clampOffset()
+
+	// Style the input text red when no files match
+	if len(filtered) == 0 {
+		m.filterInput.TextStyle = lipgloss.NewStyle().Foreground(ErrorColor)
+	} else {
+		m.filterInput.TextStyle = lipgloss.NewStyle()
 	}
 }
 

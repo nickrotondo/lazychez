@@ -1360,7 +1360,7 @@ func TestHandleGitStatusKey(t *testing.T) {
 
 func TestViewDoesNotPanic(t *testing.T) {
 	t.Run("zero dimensions", func(t *testing.T) {
-		m := New(newMockChezmoi(), newMockGit())
+		m := New(newMockChezmoi(), newMockGit(), "dev")
 		got := m.View()
 		if got != "Loading..." {
 			t.Errorf("View() = %q, want 'Loading...'", got)
