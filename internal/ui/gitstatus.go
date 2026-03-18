@@ -104,6 +104,22 @@ func (m *GitStatusModel) GoToBottom() {
 	}
 }
 
+// HalfPageDown moves cursor down by half the visible height.
+func (m *GitStatusModel) HalfPageDown() {
+	n := max(1, m.height/2)
+	for i := 0; i < n; i++ {
+		m.MoveDown()
+	}
+}
+
+// HalfPageUp moves cursor up by half the visible height.
+func (m *GitStatusModel) HalfPageUp() {
+	n := max(1, m.height/2)
+	for i := 0; i < n; i++ {
+		m.MoveUp()
+	}
+}
+
 func (m *GitStatusModel) clampOffset() {
 	visible := m.height
 	if visible <= 0 {

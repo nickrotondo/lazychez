@@ -228,7 +228,8 @@ func (m Model) renderPane(title, content string, width, height int, active bool,
 		if active {
 			titleStr = PaneTitle.Render(hotkey) + dash + PaneTitle.Render(rest)
 		} else {
-			titleStr = lipgloss.NewStyle().Bold(true).Render(hotkey) + dash + PaneTitle.Render(rest)
+			inactive := lipgloss.NewStyle().Bold(true)
+			titleStr = inactive.Render(hotkey) + dash + inactive.Render(rest)
 		}
 	} else {
 		titleStr = PaneTitle.Render(title)
@@ -381,6 +382,8 @@ func (m Model) helpContent() string {
 		heading.Render("  Navigation") + `
     j/k         Move up/down
     g/G         Jump to top/bottom
+    ctrl+d/u    Half-page down/up
+    H/L         Previous/next pane
     0/1/2       Jump to panel
     ←/→         Cycle between file list and git
     tab         Next panel

@@ -369,6 +369,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus((m.focused - 1 + paneCount) % paneCount)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
+	case "H":
+		m.setFocus((m.focused - 1 + paneCount) % paneCount)
+		m.updateDimensions()
+		return m, m.fetchDiffForFocusedPane()
+	case "L":
+		m.setFocus((m.focused + 1) % paneCount)
+		m.updateDimensions()
+		return m, m.fetchDiffForFocusedPane()
 	case "left", "right":
 		if m.focused == PaneFileList {
 			m.setFocus(PaneGitStatus)
@@ -432,6 +440,10 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fileList.GoToTop()
 	case "G", "end":
 		m.fileList.GoToBottom()
+	case "ctrl+d":
+		m.fileList.HalfPageDown()
+	case "ctrl+u":
+		m.fileList.HalfPageUp()
 	case " ":
 		path := m.fileList.SelectedPath()
 		if path != "" {
@@ -513,6 +525,10 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.gitStatus.GoToTop()
 	case "G", "end":
 		m.gitStatus.GoToBottom()
+	case "ctrl+d":
+		m.gitStatus.HalfPageDown()
+	case "ctrl+u":
+		m.gitStatus.HalfPageUp()
 	case "c":
 		m.overlay = OverlayCommit
 		m.commitInput.Reset()

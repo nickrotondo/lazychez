@@ -174,6 +174,22 @@ func (m *FileListModel) GoToBottom() {
 	}
 }
 
+// HalfPageDown moves cursor down by half the visible height, skipping headings.
+func (m *FileListModel) HalfPageDown() {
+	n := max(1, m.visibleLines()/2)
+	for i := 0; i < n; i++ {
+		m.MoveDown()
+	}
+}
+
+// HalfPageUp moves cursor up by half the visible height, skipping headings.
+func (m *FileListModel) HalfPageUp() {
+	n := max(1, m.visibleLines()/2)
+	for i := 0; i < n; i++ {
+		m.MoveUp()
+	}
+}
+
 // snapCursorToFile ensures cursor is on a file, not a heading.
 func (m *FileListModel) snapCursorToFile() {
 	if len(m.files) == 0 {
