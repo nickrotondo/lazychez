@@ -345,7 +345,7 @@ func (m Model) renderFooter() string {
 	}
 
 	allHints := append(paneHints, globalHints...)
-	right := hyperlink("https://x.com/nicklrotondo", FooterLink.Render("𝕏 @nicklrotondo")) + " "
+	right := hyperlink("https://github.com/nickrotondo/lazychez", FooterLink.Render("lazychez")) + " "
 	rightWidth := lipgloss.Width(right)
 	ellipsis := HelpSep.Render(" | ") + HelpDesc.Render("…")
 
