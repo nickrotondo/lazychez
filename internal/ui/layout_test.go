@@ -37,10 +37,14 @@ func TestDistributeLeftColumn(t *testing.T) {
 		return m
 	}
 
-	t.Run("even split regardless of focus", func(t *testing.T) {
-		for _, focused := range []PaneID{PaneFileList, PaneGitStatus, PaneDiff} {
+	t.Run("status gets fixed height, rest splits 50/50", func(t *testing.T) {
+		for _, focused := range []PaneID{PaneFileList, PaneGitStatus, PaneInfo} {
 			m := makeModel(focused, 5, 3)
-			fileH, gitH := m.distributeLeftColumn(30)
+			statusH, fileH, gitH := m.distributeLeftColumn(33)
+			if statusH != statusPaneHeight {
+				t.Errorf("focused=%d: statusH = %d, want %d", focused, statusH, statusPaneHeight)
+			}
+			// remaining = 33 - 3 = 30, split 15/15
 			if fileH != 15 {
 				t.Errorf("focused=%d: fileH = %d, want 15", focused, fileH)
 			}
@@ -50,22 +54,18 @@ func TestDistributeLeftColumn(t *testing.T) {
 		}
 	})
 
-	t.Run("odd available rounds correctly", func(t *testing.T) {
+	t.Run("odd remaining rounds correctly", func(t *testing.T) {
 		m := makeModel(PaneFileList, 5, 3)
-		fileH, gitH := m.distributeLeftColumn(31)
+		statusH, fileH, gitH := m.distributeLeftColumn(34)
+		// remaining = 34 - 3 = 31, file=15, git=16
+		if statusH != statusPaneHeight {
+			t.Errorf("statusH = %d, want %d", statusH, statusPaneHeight)
+		}
 		if fileH+gitH != 31 {
-			t.Errorf("sum = %d, want 31", fileH+gitH)
+			t.Errorf("fileH+gitH = %d, want 31", fileH+gitH)
 		}
 		if fileH != 15 || gitH != 16 {
 			t.Errorf("fileH=%d gitH=%d, want 15 and 16", fileH, gitH)
-		}
-	})
-
-	t.Run("ignores content lines", func(t *testing.T) {
-		m := makeModel(PaneFileList, 100, 0)
-		fileH, gitH := m.distributeLeftColumn(20)
-		if fileH != 10 || gitH != 10 {
-			t.Errorf("fileH=%d gitH=%d, want 10 and 10", fileH, gitH)
 		}
 	})
 
@@ -78,15 +78,15 @@ func TestDistributeLeftColumn(t *testing.T) {
 		}{
 			{PaneFileList, 5, 3, 30},
 			{PaneGitStatus, 10, 10, 15},
-			{PaneDiff, 0, 0, 20},
+			{PaneInfo, 0, 0, 20},
 			{PaneFileList, 50, 50, 40},
 		}
 		for _, c := range configs {
 			m := makeModel(c.focused, c.fileN, c.gitN)
-			fileH, gitH := m.distributeLeftColumn(c.avail)
-			if fileH+gitH != c.avail {
+			statusH, fileH, gitH := m.distributeLeftColumn(c.avail)
+			if statusH+fileH+gitH != c.avail {
 				t.Errorf("focused=%d file=%d git=%d avail=%d: sum=%d, want %d",
-					c.focused, c.fileN, c.gitN, c.avail, fileH+gitH, c.avail)
+					c.focused, c.fileN, c.gitN, c.avail, statusH+fileH+gitH, c.avail)
 			}
 		}
 	})
@@ -109,14 +109,16 @@ func TestDistributeNarrow(t *testing.T) {
 		return m
 	}
 
-	t.Run("file focused: git collapses, diff stays visible", func(t *testing.T) {
+	t.Run("file focused: status and git collapse", func(t *testing.T) {
 		m := makeModel(PaneFileList, 3, 3)
-		fileH, gitH, diffH := m.distributeNarrow(60)
+		statusH, fileH, gitH, diffH := m.distributeNarrow(60)
+		if statusH != collapsedHeight {
+			t.Errorf("statusH = %d, want %d", statusH, collapsedHeight)
+		}
 		if gitH != collapsedHeight {
 			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
 		}
-		// Diff should get roughly half, not collapse
-		remaining := 60 - collapsedHeight
+		remaining := 60 - 2*collapsedHeight
 		wantFile := remaining / 2
 		wantDiff := remaining - wantFile
 		if fileH != wantFile {
@@ -127,33 +129,16 @@ func TestDistributeNarrow(t *testing.T) {
 		}
 	})
 
-	t.Run("diff focused: prevFocused side pane stays expanded", func(t *testing.T) {
-		m := makeModel(PaneDiff, 3, 3)
-		m.prevFocused = PaneFileList
-		fileH, gitH, diffH := m.distributeNarrow(60)
-		// File list was prevFocused, so it stays expanded
-		if gitH != collapsedHeight {
-			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
+	t.Run("git focused: status and file collapse", func(t *testing.T) {
+		m := makeModel(PaneGitStatus, 3, 3)
+		statusH, fileH, gitH, diffH := m.distributeNarrow(40)
+		if statusH != collapsedHeight {
+			t.Errorf("statusH = %d, want %d", statusH, collapsedHeight)
 		}
-		remaining := 60 - collapsedHeight
-		wantFile := remaining / 2
-		wantDiff := remaining - wantFile
-		if fileH != wantFile {
-			t.Errorf("fileH = %d, want %d", fileH, wantFile)
-		}
-		if diffH != wantDiff {
-			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
-		}
-	})
-
-	t.Run("diff focused with prevFocused=git", func(t *testing.T) {
-		m := makeModel(PaneDiff, 3, 3)
-		m.prevFocused = PaneGitStatus
-		fileH, gitH, diffH := m.distributeNarrow(60)
 		if fileH != collapsedHeight {
 			t.Errorf("fileH = %d, want %d", fileH, collapsedHeight)
 		}
-		remaining := 60 - collapsedHeight
+		remaining := 40 - 2*collapsedHeight
 		wantGit := remaining / 2
 		wantDiff := remaining - wantGit
 		if gitH != wantGit {
@@ -164,13 +149,58 @@ func TestDistributeNarrow(t *testing.T) {
 		}
 	})
 
-	t.Run("git focused: file collapses, diff stays visible", func(t *testing.T) {
-		m := makeModel(PaneGitStatus, 3, 3)
-		fileH, gitH, diffH := m.distributeNarrow(40)
+	t.Run("status focused: file and git collapse, status expands 50/50 with diff", func(t *testing.T) {
+		m := makeModel(PaneStatus, 3, 3)
+		statusH, fileH, gitH, diffH := m.distributeNarrow(60)
 		if fileH != collapsedHeight {
 			t.Errorf("fileH = %d, want %d", fileH, collapsedHeight)
 		}
-		remaining := 40 - collapsedHeight
+		if gitH != collapsedHeight {
+			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
+		}
+		remaining := 60 - 2*collapsedHeight
+		wantStatus := remaining / 2
+		wantDiff := remaining - wantStatus
+		if statusH != wantStatus {
+			t.Errorf("statusH = %d, want %d", statusH, wantStatus)
+		}
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
+		}
+	})
+
+	t.Run("info focused: prevFocused side pane stays expanded", func(t *testing.T) {
+		m := makeModel(PaneInfo, 3, 3)
+		m.prevFocused = PaneFileList
+		statusH, fileH, gitH, diffH := m.distributeNarrow(60)
+		if statusH != collapsedHeight {
+			t.Errorf("statusH = %d, want %d", statusH, collapsedHeight)
+		}
+		if gitH != collapsedHeight {
+			t.Errorf("gitH = %d, want %d", gitH, collapsedHeight)
+		}
+		remaining := 60 - 2*collapsedHeight
+		wantFile := remaining / 2
+		wantDiff := remaining - wantFile
+		if fileH != wantFile {
+			t.Errorf("fileH = %d, want %d", fileH, wantFile)
+		}
+		if diffH != wantDiff {
+			t.Errorf("diffH = %d, want %d", diffH, wantDiff)
+		}
+	})
+
+	t.Run("info focused with prevFocused=git", func(t *testing.T) {
+		m := makeModel(PaneInfo, 3, 3)
+		m.prevFocused = PaneGitStatus
+		statusH, fileH, gitH, diffH := m.distributeNarrow(60)
+		if statusH != collapsedHeight {
+			t.Errorf("statusH = %d, want %d", statusH, collapsedHeight)
+		}
+		if fileH != collapsedHeight {
+			t.Errorf("fileH = %d, want %d", fileH, collapsedHeight)
+		}
+		remaining := 60 - 2*collapsedHeight
 		wantGit := remaining / 2
 		wantDiff := remaining - wantGit
 		if gitH != wantGit {
@@ -190,15 +220,16 @@ func TestDistributeNarrow(t *testing.T) {
 		}{
 			{PaneFileList, 5, 3, 60},
 			{PaneGitStatus, 10, 10, 30},
-			{PaneDiff, 0, 0, 40},
+			{PaneInfo, 0, 0, 40},
 			{PaneFileList, 50, 50, 50},
+			{PaneStatus, 3, 3, 40},
 		}
 		for _, c := range configs {
 			m := makeModel(c.focused, c.fileN, c.gitN)
-			fileH, gitH, diffH := m.distributeNarrow(c.avail)
-			if fileH+gitH+diffH != c.avail {
+			statusH, fileH, gitH, diffH := m.distributeNarrow(c.avail)
+			if statusH+fileH+gitH+diffH != c.avail {
 				t.Errorf("focused=%d file=%d git=%d avail=%d: sum=%d, want %d",
-					c.focused, c.fileN, c.gitN, c.avail, fileH+gitH+diffH, c.avail)
+					c.focused, c.fileN, c.gitN, c.avail, statusH+fileH+gitH+diffH, c.avail)
 			}
 		}
 	})
@@ -206,29 +237,63 @@ func TestDistributeNarrow(t *testing.T) {
 
 func TestRenderCollapsedPane(t *testing.T) {
 	t.Run("correct width without info", func(t *testing.T) {
-		line := renderCollapsedPane("[2] Source Git", 40, "")
+		line := renderCollapsedPane("[3] Source Git", 40, "")
 		if w := len([]rune(stripAnsi(line))); w != 40 {
 			t.Errorf("collapsed pane width = %d, want 40", w)
 		}
 	})
 
 	t.Run("correct width with info", func(t *testing.T) {
-		line := renderCollapsedPane("[2] Source Git", 40, "1 of 5")
+		line := renderCollapsedPane("[3] Source Git", 40, "1 of 5")
 		if w := len([]rune(stripAnsi(line))); w != 40 {
 			t.Errorf("collapsed pane width = %d, want 40", w)
 		}
 	})
 
 	t.Run("contains title and info", func(t *testing.T) {
-		line := renderCollapsedPane("[2] Source Git", 50, "1 of 5")
+		line := renderCollapsedPane("[3] Source Git", 50, "1 of 5")
 		stripped := stripAnsi(line)
-		if !contains(stripped, "[2]") || !contains(stripped, "Source Git") {
+		if !contains(stripped, "[3]") || !contains(stripped, "Source Git") {
 			t.Errorf("collapsed pane missing title parts: %q", stripped)
 		}
 		if !contains(stripped, "1 of 5") {
 			t.Errorf("collapsed pane missing info: %q", stripped)
 		}
 	})
+}
+
+func TestNextInCycle(t *testing.T) {
+	tests := []struct {
+		current PaneID
+		want    PaneID
+	}{
+		{PaneFileList, PaneGitStatus},
+		{PaneGitStatus, PaneStatus},
+		{PaneStatus, PaneFileList},
+		{PaneInfo, PaneFileList}, // from info, default to file list
+	}
+	for _, tt := range tests {
+		if got := nextInCycle(tt.current); got != tt.want {
+			t.Errorf("nextInCycle(%d) = %d, want %d", tt.current, got, tt.want)
+		}
+	}
+}
+
+func TestPrevInCycle(t *testing.T) {
+	tests := []struct {
+		current PaneID
+		want    PaneID
+	}{
+		{PaneFileList, PaneStatus},
+		{PaneGitStatus, PaneFileList},
+		{PaneStatus, PaneGitStatus},
+		{PaneInfo, PaneFileList}, // from info, default to file list
+	}
+	for _, tt := range tests {
+		if got := prevInCycle(tt.current); got != tt.want {
+			t.Errorf("prevInCycle(%d) = %d, want %d", tt.current, got, tt.want)
+		}
+	}
 }
 
 // stripAnsi removes ANSI escape sequences for width testing.

@@ -87,6 +87,16 @@ type EditorFinishedMsg struct {
 	Err error
 }
 
+type AheadBehindMsg struct {
+	Ahead  int
+	Behind int
+	Branch string
+	Remote string
+	Err    error
+}
+
 // UI messages
 
 type ClearStatusMsg struct{}
+
+type TickMsg struct{}

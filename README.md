@@ -109,7 +109,6 @@ lazychez wraps the `chezmoi` and `git` CLIs under the hood. It calls `chezmoi ma
 | `A`     | Apply all files                         |
 | `D`     | Discard drift (revert the changed side) |
 | `e`     | Edit source (`chezmoi edit`)            |
-| `E`     | Edit destination file                   |
 | `+`     | Add unmanaged file (fuzzy file picker)  |
 | `x`     | Forget file (remove from chezmoi)       |
 | `/`     | Filter files (fuzzy search)             |

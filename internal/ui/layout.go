@@ -21,16 +21,22 @@ func (m Model) View() string {
 		fileTitle = fmt.Sprintf("[1] Managed Files · %d drifted", dc)
 	}
 	gitTitle := "[2] Source Git"
-	diffTitle := "[0] Diff"
-	if p := m.diffView.Path(); p != "" {
+	statusTitle := "[3] Status"
+
+	var diffTitle string
+	if m.showInfoView() {
+		diffTitle = "[0] Info"
+	} else if p := m.diffView.Path(); p != "" {
 		diffTitle = fmt.Sprintf("[0] Diff — %s", p)
+	} else {
+		diffTitle = "[0] Diff"
 	}
 
 	var main string
 	if m.isNarrow() {
-		main = m.viewNarrow(fileTitle, gitTitle, diffTitle)
+		main = m.viewNarrow(statusTitle, fileTitle, gitTitle, diffTitle)
 	} else {
-		main = m.viewWide(fileTitle, gitTitle, diffTitle)
+		main = m.viewWide(statusTitle, fileTitle, gitTitle, diffTitle)
 	}
 
 	statusLine := m.renderStatusBar()
@@ -56,38 +62,57 @@ func (m Model) View() string {
 	return screen
 }
 
-// viewWide renders the side-by-side layout (>= 100 cols).
-// Left column panes size to content; diff takes full right side.
-func (m Model) viewWide(fileTitle, gitTitle, diffTitle string) string {
+// viewWide renders the side-by-side layout (>= 85 cols).
+// Left column: file list + git status + Status (fixed 3 lines).
+// Right column: diff/info pane takes full height.
+func (m Model) viewWide(statusTitle, fileTitle, gitTitle, diffTitle string) string {
 	leftWidth := m.width / 3
 	rightWidth := m.width - leftWidth
 	contentHeight := m.height - 2
 
-	fileH, gitH := m.distributeLeftColumn(contentHeight)
+	statusH, fileH, gitH := m.distributeLeftColumn(contentHeight)
 
+	statusOff, statusTotalLines := m.statusPane.ScrollState()
 	fileCur, fileTotal := m.fileList.CursorPosition()
 	fileOff, fileTotalLines := m.fileList.ScrollState()
 	gitCur, gitTotal := m.gitStatus.CursorPosition()
 	gitOff, gitTotalLines := m.gitStatus.ScrollState()
-	diffOff, diffTotalLines := m.diffView.ScrollState()
 
+	statusPane := m.renderPane(statusTitle, m.statusPane.View(), leftWidth, statusH, m.focused == PaneStatus, paneOpts{scrollOff: statusOff, totalLines: statusTotalLines})
 	filePane := m.renderPane(fileTitle, m.fileList.View(), leftWidth, fileH, m.focused == PaneFileList, paneOpts{info: posInfo(fileCur, fileTotal), scrollOff: fileOff, totalLines: fileTotalLines})
 	gitPane := m.renderPane(gitTitle, m.gitStatus.View(), leftWidth, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
-	diffPane := m.renderPane(diffTitle, m.diffView.View(), rightWidth, contentHeight, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
 
-	left := lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane)
+	var detailContent string
+	var detailOpts paneOpts
+	if m.showInfoView() {
+		detailContent = m.renderInfoContent()
+	} else {
+		diffOff, diffTotalLines := m.diffView.ScrollState()
+		detailContent = m.diffView.View()
+		detailOpts = paneOpts{scrollOff: diffOff, totalLines: diffTotalLines}
+	}
+	diffPane := m.renderPane(diffTitle, detailContent, rightWidth, contentHeight, m.focused == PaneInfo, detailOpts)
+
+	left := lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane, statusPane)
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, diffPane)
 }
 
-// viewNarrow renders the stacked layout (< 100 cols).
-// Unfocused panes render as single-line collapsed bars.
-func (m Model) viewNarrow(fileTitle, gitTitle, diffTitle string) string {
+// viewNarrow renders the stacked layout (< 85 cols).
+// Unfocused side panes collapse to single-line bars.
+func (m Model) viewNarrow(statusTitle, fileTitle, gitTitle, diffTitle string) string {
 	w := m.width
 	contentHeight := m.height - 2
 
-	fileH, gitH, diffH := m.distributeNarrow(contentHeight)
+	statusH, fileH, gitH, diffH := m.distributeNarrow(contentHeight)
 
-	var filePane, gitPane, diffPane string
+	var statusPane, filePane, gitPane, diffPane string
+
+	if statusH == collapsedHeight {
+		statusPane = renderCollapsedPane(statusTitle, w, "")
+	} else {
+		statusOff, statusTotalLines := m.statusPane.ScrollState()
+		statusPane = m.renderPane(statusTitle, m.statusPane.View(), w, statusH, m.focused == PaneStatus, paneOpts{scrollOff: statusOff, totalLines: statusTotalLines})
+	}
 
 	fileCur, fileTotal := m.fileList.CursorPosition()
 	if fileH == collapsedHeight {
@@ -105,11 +130,19 @@ func (m Model) viewNarrow(fileTitle, gitTitle, diffTitle string) string {
 		gitPane = m.renderPane(gitTitle, m.gitStatus.View(), w, gitH, m.focused == PaneGitStatus, paneOpts{info: posInfo(gitCur, gitTotal), scrollOff: gitOff, totalLines: gitTotalLines})
 	}
 
-	// Diff pane is always rendered as a full pane, never collapsed.
-	diffOff, diffTotalLines := m.diffView.ScrollState()
-	diffPane = m.renderPane(diffTitle, m.diffView.View(), w, diffH, m.focused == PaneDiff, paneOpts{scrollOff: diffOff, totalLines: diffTotalLines})
+	// Info/Diff pane is always rendered as a full pane, never collapsed.
+	var detailContent string
+	var detailOpts paneOpts
+	if m.showInfoView() {
+		detailContent = m.renderInfoContent()
+	} else {
+		diffOff, diffTotalLines := m.diffView.ScrollState()
+		detailContent = m.diffView.View()
+		detailOpts = paneOpts{scrollOff: diffOff, totalLines: diffTotalLines}
+	}
+	diffPane = m.renderPane(diffTitle, detailContent, w, diffH, m.focused == PaneInfo, detailOpts)
 
-	return lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane, diffPane)
+	return lipgloss.JoinVertical(lipgloss.Left, filePane, gitPane, statusPane, diffPane)
 }
 
 // renderCollapsedPane renders a single-line bar for an unfocused pane in narrow mode.
@@ -140,46 +173,62 @@ func renderCollapsedPane(title string, width int, info string) string {
 	return bc.Render("──") + titleStr + bc.Render(strings.Repeat("─", pad)) + infoStr
 }
 
-// distributeLeftColumn splits the left column 50/50 between file list and
-// git status panes in wide mode.
-func (m Model) distributeLeftColumn(available int) (fileH, gitH int) {
-	fileH = available / 2
-	gitH = available - fileH
-	return fileH, gitH
+// statusPaneHeight is the fixed height of the Status pane (1 content + 2 border).
+const statusPaneHeight = 3
+
+// distributeLeftColumn splits the left column: file list and git status split the
+// space 50/50 after reserving a fixed 3-line height for the Status pane.
+func (m Model) distributeLeftColumn(available int) (statusH, fileH, gitH int) {
+	statusH = statusPaneHeight
+	remaining := available - statusH
+	fileH = remaining / 2
+	gitH = remaining - fileH
+	return statusH, fileH, gitH
 }
 
 // collapsedHeight is the height of an unfocused pane in narrow mode (single-line bar).
 const collapsedHeight = 1
 
-// distributeNarrow computes heights for all three panes in narrow mode.
-// The diff pane always stays visible (never collapses). The "active" side
-// pane (focused, or prevFocused when diff is focused) stays expanded and
-// splits ~50/50 with diff. The other side pane collapses to a single-line bar.
-func (m Model) distributeNarrow(available int) (fileH, gitH, diffH int) {
+// distributeNarrow computes heights for all four panes in narrow mode.
+// The info/diff pane always stays visible (never collapses). The "active" side
+// pane (focused, or prevFocused when info is focused) stays expanded.
+// The two inactive side panes collapse to single-line bars.
+func (m Model) distributeNarrow(available int) (statusH, fileH, gitH, diffH int) {
 	// Determine which side pane stays expanded.
 	activeSide := m.focused
-	if activeSide == PaneDiff {
+	if activeSide == PaneInfo {
 		activeSide = m.prevFocused
 	}
 
-	remaining := available - collapsedHeight
-	sideH := remaining / 2
-	diffH = remaining - sideH
+	// Two inactive side panes collapse to 1 line each.
+	remaining := available - 2*collapsedHeight
 
-	if activeSide == PaneFileList {
-		fileH = sideH
-		gitH = collapsedHeight
-	} else {
-		gitH = sideH
+	switch activeSide {
+	case PaneStatus:
 		fileH = collapsedHeight
+		gitH = collapsedHeight
+		remaining = available - fileH - gitH
+		statusH = remaining / 2
+		diffH = remaining - statusH
+	case PaneFileList:
+		statusH = collapsedHeight
+		gitH = collapsedHeight
+		remaining = available - statusH - gitH
+		fileH = remaining / 2
+		diffH = remaining - fileH
+	default: // PaneGitStatus
+		statusH = collapsedHeight
+		fileH = collapsedHeight
+		remaining = available - statusH - fileH
+		gitH = remaining / 2
+		diffH = remaining - gitH
 	}
 
-	// Safety: ensure diff always has at least paneChrome height.
 	if diffH < paneChrome {
 		diffH = paneChrome
 	}
 
-	return fileH, gitH, diffH
+	return statusH, fileH, gitH, diffH
 }
 
 type paneOpts struct {
@@ -351,7 +400,9 @@ func (m Model) renderFooter() string {
 			hint("space", "stage"), hint("a", "stage all"),
 			hint("c", "commit"), hint("p", "pull"), hint("P", "push"), hint("D", "discard"),
 		}
-	case PaneDiff:
+	case PaneStatus:
+		paneHints = []string{hint("r", "refresh")}
+	case PaneInfo:
 		paneHints = []string{hint("esc", "back")}
 	}
 
@@ -399,7 +450,7 @@ func (m Model) helpContent() string {
     g/G         Jump to top/bottom
     ctrl+d/u    Half-page down/up
     H/L         Previous/next pane
-    0/1/2       Jump to panel
+    0/1/2/3     Jump to panel
     ←/→         Cycle between file list and git
     tab         Next panel
     shift+tab   Previous panel
@@ -411,7 +462,6 @@ func (m Model) helpContent() string {
     A           Apply all files
     D           Discard drift (revert change)
     e           Edit source (chezmoi edit)
-    E           Edit destination file
     +           Add unmanaged file
     x           Forget file (unmanage)
 ` + "\n" +
@@ -531,6 +581,35 @@ func posInfo(current, total int) string {
 	}
 	return fmt.Sprintf("%d of %d", current, total)
 }
+
+// renderInfoContent returns the info view content shown when pane 0 is in "info" context.
+func (m Model) renderInfoContent() string {
+	title := lipgloss.NewStyle().Foreground(TitleColor).Bold(true)
+	subtitle := lipgloss.NewStyle().Foreground(TitleColor)
+	muted := lipgloss.NewStyle().Foreground(MutedColor)
+	linkStyle := lipgloss.NewStyle().Foreground(MutedColor).Underline(false)
+
+	var b strings.Builder
+	b.WriteString(title.Render(infoASCII))
+	b.WriteString("\n\n")
+	b.WriteString(title.Render("  lazychez") + " " + lipgloss.NewStyle().Foreground(TextColor).Render(m.version))
+	b.WriteString("\n")
+	b.WriteString(muted.Render("  A terminal UI for chezmoi dotfile management"))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render("  ———"))
+	b.WriteString("\n\n")
+	b.WriteString(subtitle.Render("  Github:"))
+	b.WriteString("\n")
+	b.WriteString("  " + hyperlink("https://github.com/nickrotondo/lazychez", linkStyle.Render("github.com/nickrotondo/lazychez")))
+	b.WriteString("\n\n")
+	b.WriteString(subtitle.Render("  Report issues:"))
+	b.WriteString("\n")
+	b.WriteString("  " + hyperlink("https://github.com/nickrotondo/lazychez/issues", linkStyle.Render("github.com/nickrotondo/lazychez/issues")))
+	b.WriteString("\n\n")
+	b.WriteString(muted.Render("  © 2026 Nick Rotondo"))
+	return b.String()
+}
+
 
 // hyperlink wraps text in an OSC 8 terminal hyperlink escape sequence.
 func hyperlink(url, text string) string {

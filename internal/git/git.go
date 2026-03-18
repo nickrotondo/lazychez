@@ -16,6 +16,13 @@ type StatusEntry struct {
 	Path string
 }
 
+type AheadBehindInfo struct {
+	Ahead  int
+	Behind int
+	Branch string
+	Remote string // empty when no upstream is configured
+}
+
 type Runner interface {
 	Status(ctx context.Context) ([]StatusEntry, error)
 	Diff(ctx context.Context, path string) (string, error)
@@ -27,6 +34,7 @@ type Runner interface {
 	Reset(ctx context.Context, path string) error
 	Restore(ctx context.Context, path string) error
 	Clean(ctx context.Context, path string) error
+	AheadBehind(ctx context.Context) (AheadBehindInfo, error)
 }
 
 type CLI struct {
@@ -161,6 +169,71 @@ func (c *CLI) Clean(ctx context.Context, path string) error {
 		return fmt.Errorf("git clean: %w", err)
 	}
 	return nil
+}
+
+func (c *CLI) AheadBehind(ctx context.Context) (AheadBehindInfo, error) {
+	var info AheadBehindInfo
+
+	// Get current branch name
+	branchOut, err := c.run(ctx, "branch", "--show-current")
+	if err != nil {
+		return info, fmt.Errorf("git branch: %w", err)
+	}
+	info.Branch = strings.TrimSpace(branchOut)
+
+	// Try explicit upstream tracking ref first (e.g. "origin/main")
+	remoteRef, err := c.run(ctx, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	if err == nil {
+		info.Remote = strings.TrimSpace(remoteRef)
+	} else {
+		// No tracking configured. Fetch from the remote and set up tracking
+		// so ahead/behind (and future push/pull) work cleanly.
+		info.Remote = c.fetchAndSetUpstream(ctx, info.Branch)
+		if info.Remote == "" {
+			return info, nil
+		}
+	}
+
+	// Get ahead/behind counts
+	countOut, err := c.run(ctx, "rev-list", "--left-right", "--count", "HEAD..."+info.Remote)
+	if err != nil {
+		return info, fmt.Errorf("git rev-list: %w", err)
+	}
+	parts := strings.Fields(strings.TrimSpace(countOut))
+	if len(parts) == 2 {
+		fmt.Sscanf(parts[0], "%d", &info.Ahead)
+		fmt.Sscanf(parts[1], "%d", &info.Behind)
+	}
+
+	return info, nil
+}
+
+// fetchAndSetUpstream fetches from the first remote and sets up branch tracking
+// if a matching remote branch exists. Returns the remote ref (e.g. "origin/master")
+// or empty string if no remote/match is found.
+func (c *CLI) fetchAndSetUpstream(ctx context.Context, branch string) string {
+	remoteOut, err := c.run(ctx, "remote")
+	if err != nil {
+		return ""
+	}
+	lines := splitLines(remoteOut)
+	if len(lines) == 0 {
+		return ""
+	}
+	remote := lines[0]
+
+	// Fetch to ensure we have up-to-date remote-tracking refs
+	c.run(ctx, "fetch", remote)
+
+	candidate := remote + "/" + branch
+	if _, err := c.run(ctx, "rev-parse", "--verify", candidate); err != nil {
+		return ""
+	}
+
+	// Set upstream tracking so this is a one-time fix
+	c.run(ctx, "branch", "--set-upstream-to="+candidate, branch)
+
+	return candidate
 }
 
 func (c *CLI) run(ctx context.Context, args ...string) (string, error) {

@@ -40,6 +40,16 @@ func (d DriftKind) sortOrder() int {
 	}
 }
 
+// classifyDrift determines drift direction from chezmoi status columns.
+// First column (SourceState): was the dest modified since last apply?
+// If yes → dest edited. If no but second column shows diff → source edited.
+func classifyDrift(s chezmoi.StatusEntry) DriftKind {
+	if s.SourceState != ' ' {
+		return DriftDestEdited
+	}
+	return DriftSourceEdited
+}
+
 type FileItem struct {
 	Path          string
 	SourceRelPath string
@@ -369,8 +379,10 @@ func (m FileListModel) View() string {
 }
 
 // MergeFilesWithStatus builds the merged and sorted file list.
-// gitModifiedPaths is a set of source-relative paths that are dirty in git.
-func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.StatusEntry, gitModifiedPaths map[string]bool) []FileItem {
+// Drift direction is determined from chezmoi status columns:
+//   - First column != ' ': dest was modified since last apply → DriftDestEdited
+//   - First column == ' ': dest unchanged, source has changes → DriftSourceEdited
+func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.StatusEntry) []FileItem {
 	statusMap := make(map[string]chezmoi.StatusEntry, len(status))
 	for _, s := range status {
 		statusMap[s.Path] = s
@@ -382,14 +394,7 @@ func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.Status
 		if s, ok := statusMap[f.Path]; ok {
 			item.SourceState = s.SourceState
 			item.DestState = s.DestState
-			// Classify drift direction: if the source file is dirty in git,
-			// it was edited via chezmoi (suggest apply). Otherwise the
-			// destination was edited directly (suggest add).
-			if gitModifiedPaths[f.SourceRelPath] {
-				item.Drift = DriftSourceEdited
-			} else {
-				item.Drift = DriftDestEdited
-			}
+			item.Drift = classifyDrift(s)
 		}
 		items = append(items, item)
 	}
@@ -405,7 +410,7 @@ func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.Status
 				Path:        s.Path,
 				SourceState: s.SourceState,
 				DestState:   s.DestState,
-				Drift:       DriftDestEdited,
+				Drift:       classifyDrift(s),
 			})
 		}
 	}

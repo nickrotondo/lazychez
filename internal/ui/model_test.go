@@ -461,7 +461,7 @@ func TestHandleKey_GlobalKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("tab cycles focus forward", func(t *testing.T) {
+	t.Run("tab cycles focus forward skipping pane 0", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		if m.focused != PaneFileList {
 			t.Fatalf("initial focus = %d, want PaneFileList", m.focused)
@@ -471,8 +471,8 @@ func TestHandleKey_GlobalKeys(t *testing.T) {
 			t.Errorf("after tab: focused = %d, want PaneGitStatus", m.focused)
 		}
 		m, _ = sendSpecialKey(m, tea.KeyTab)
-		if m.focused != PaneDiff {
-			t.Errorf("after tab: focused = %d, want PaneDiff", m.focused)
+		if m.focused != PaneStatus {
+			t.Errorf("after tab: focused = %d, want PaneStatus", m.focused)
 		}
 		m, _ = sendSpecialKey(m, tea.KeyTab)
 		if m.focused != PaneFileList {
@@ -480,17 +480,21 @@ func TestHandleKey_GlobalKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("shift+tab cycles focus backward", func(t *testing.T) {
+	t.Run("shift+tab cycles focus backward skipping pane 0", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m, _ = sendSpecialKey(m, tea.KeyShiftTab)
-		if m.focused != PaneDiff {
-			t.Errorf("after shift+tab: focused = %d, want PaneDiff", m.focused)
+		if m.focused != PaneStatus {
+			t.Errorf("after shift+tab: focused = %d, want PaneStatus", m.focused)
+		}
+		m, _ = sendSpecialKey(m, tea.KeyShiftTab)
+		if m.focused != PaneGitStatus {
+			t.Errorf("after shift+tab: focused = %d, want PaneGitStatus", m.focused)
 		}
 	})
 
 	t.Run("1 focuses file list", func(t *testing.T) {
 		m, _, _ := newTestModel()
-		m.focused = PaneDiff
+		m.focused = PaneInfo
 		m, _ = sendKey(m, "1")
 		if m.focused != PaneFileList {
 			t.Errorf("focused = %d, want PaneFileList", m.focused)
@@ -505,36 +509,49 @@ func TestHandleKey_GlobalKeys(t *testing.T) {
 		}
 	})
 
-	t.Run("0 focuses diff", func(t *testing.T) {
+	t.Run("3 focuses status", func(t *testing.T) {
 		m, _, _ := newTestModel()
-		m, _ = sendKey(m, "0")
-		if m.focused != PaneDiff {
-			t.Errorf("focused = %d, want PaneDiff", m.focused)
+		m, _ = sendKey(m, "3")
+		if m.focused != PaneStatus {
+			t.Errorf("focused = %d, want PaneStatus", m.focused)
 		}
 	})
 
-	t.Run("left/right cycles between file list and git status", func(t *testing.T) {
+	t.Run("0 focuses info pane", func(t *testing.T) {
 		m, _, _ := newTestModel()
-		// Start at file list, right arrow → git status
+		m, _ = sendKey(m, "0")
+		if m.focused != PaneInfo {
+			t.Errorf("focused = %d, want PaneInfo", m.focused)
+		}
+	})
+
+	t.Run("left/right cycles through 1-2-3 skipping pane 0", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		// Start at file list (1), right → git status (2)
 		m, _ = sendSpecialKey(m, tea.KeyRight)
 		if m.focused != PaneGitStatus {
 			t.Errorf("after right: focused = %d, want PaneGitStatus", m.focused)
 		}
-		// Right again → back to file list
+		// Right → status (3)
+		m, _ = sendSpecialKey(m, tea.KeyRight)
+		if m.focused != PaneStatus {
+			t.Errorf("after right: focused = %d, want PaneStatus", m.focused)
+		}
+		// Right → file list (1) — wraps
 		m, _ = sendSpecialKey(m, tea.KeyRight)
 		if m.focused != PaneFileList {
 			t.Errorf("after right: focused = %d, want PaneFileList", m.focused)
 		}
-		// Left from file list → git status
+		// Left from file list (1) → status (3)
 		m, _ = sendSpecialKey(m, tea.KeyLeft)
-		if m.focused != PaneGitStatus {
-			t.Errorf("after left: focused = %d, want PaneGitStatus", m.focused)
+		if m.focused != PaneStatus {
+			t.Errorf("after left: focused = %d, want PaneStatus", m.focused)
 		}
-		// From diff pane, arrow goes to file list
-		m.focused = PaneDiff
+		// From info pane, left → file list (default)
+		m.focused = PaneInfo
 		m, _ = sendSpecialKey(m, tea.KeyLeft)
 		if m.focused != PaneFileList {
-			t.Errorf("after left from diff: focused = %d, want PaneFileList", m.focused)
+			t.Errorf("after left from info: focused = %d, want PaneFileList", m.focused)
 		}
 	})
 
@@ -1417,5 +1434,304 @@ func TestViewDoesNotPanic(t *testing.T) {
 		m.width = 60
 		m.updateDimensions()
 		_ = m.View() // Should not panic
+	})
+}
+
+func TestFormatAheadBehind(t *testing.T) {
+	tests := []struct {
+		name   string
+		ahead  int
+		behind int
+		branch string
+		remote string
+		want   string
+	}{
+		{"ahead only", 2, 0, "main", "origin/main", "↑2 main → origin/main"},
+		{"behind only", 0, 3, "main", "origin/main", "↓3 main → origin/main"},
+		{"both", 2, 3, "main", "origin/main", "↑2 ↓3 main → origin/main"},
+		{"zero zero", 0, 0, "main", "origin/main", "main → origin/main"},
+		{"no upstream", 0, 0, "main", "", "main (no remote)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatAheadBehind(tt.ahead, tt.behind, tt.branch, tt.remote)
+			if got != tt.want {
+				t.Errorf("FormatAheadBehind() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUpdate_AheadBehindMsg(t *testing.T) {
+	t.Run("success updates status pane", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AheadBehindMsg{Ahead: 2, Behind: 3, Branch: "main", Remote: "origin/main"}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if cmd != nil {
+			t.Error("cmd should be nil on success")
+		}
+		view := m.statusPane.View()
+		if !strings.Contains(view, "↑2") {
+			t.Errorf("view = %q, want to contain ↑2", view)
+		}
+		if !strings.Contains(view, "↓3") {
+			t.Errorf("view = %q, want to contain ↓3", view)
+		}
+		if !strings.Contains(view, "main → origin/main") {
+			t.Errorf("view = %q, want to contain 'main → origin/main'", view)
+		}
+	})
+
+	t.Run("error sets status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AheadBehindMsg{Err: fmt.Errorf("git failed")}
+		result, cmd := m.Update(msg)
+		m = result.(Model)
+		if !m.statusError {
+			t.Error("statusError should be true")
+		}
+		if !strings.Contains(m.statusMsg, "Git error") {
+			t.Errorf("statusMsg = %q, want to contain 'Git error'", m.statusMsg)
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil (clearStatusAfter)")
+		}
+	})
+
+	t.Run("no upstream shows no remote", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AheadBehindMsg{Branch: "main", Remote: ""}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		view := m.statusPane.View()
+		if !strings.Contains(view, "(no remote)") {
+			t.Errorf("view = %q, want to contain '(no remote)'", view)
+		}
+	})
+
+	t.Run("zero zero with remote shows clean line", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		msg := AheadBehindMsg{Ahead: 0, Behind: 0, Branch: "main", Remote: "origin/main"}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		view := m.statusPane.View()
+		if view != "main → origin/main" {
+			t.Errorf("view = %q, want 'main → origin/main'", view)
+		}
+	})
+}
+
+func TestStatusPaneFooterHints(t *testing.T) {
+	m, _, _ := newTestModel()
+	m.focused = PaneStatus
+	m.syncFocus()
+	footer := m.renderFooter()
+	if !strings.Contains(footer, "refresh") {
+		t.Errorf("footer = %q, want to contain 'refresh'", footer)
+	}
+}
+
+func TestInit_FetchesAheadBehind(t *testing.T) {
+	m, _, g := newTestModel()
+	g.aheadBehindInfo = git.AheadBehindInfo{Ahead: 1, Behind: 0, Branch: "main", Remote: "origin/main"}
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init() returned nil cmd")
+	}
+	// Init returns a batch — execute it and check for AheadBehindMsg
+	// We can't easily decompose a batch, but we can verify the mock is wired
+	// by checking that the model compiles and Init doesn't panic
+}
+
+// --- Phase 3: Contextual detail pane + info view ---
+
+func TestDetailPaneContext(t *testing.T) {
+	t.Run("returns focused pane when not on pane 0", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneFileList
+		if got := m.detailPaneContext(); got != PaneFileList {
+			t.Errorf("detailPaneContext() = %d, want PaneFileList", got)
+		}
+	})
+
+	t.Run("returns prevFocused when on pane 0", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneInfo
+		m.prevFocused = PaneGitStatus
+		if got := m.detailPaneContext(); got != PaneGitStatus {
+			t.Errorf("detailPaneContext() = %d, want PaneGitStatus", got)
+		}
+	})
+
+	t.Run("status context shows info view", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneStatus
+		if !m.showInfoView() {
+			t.Error("showInfoView() should be true when focused on Status")
+		}
+	})
+
+	t.Run("file list context shows diff view", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneFileList
+		if m.showInfoView() {
+			t.Error("showInfoView() should be false when focused on FileList")
+		}
+	})
+
+	t.Run("pane 0 with status prevFocused shows info view", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneInfo
+		m.prevFocused = PaneStatus
+		if !m.showInfoView() {
+			t.Error("showInfoView() should be true when prevFocused is Status")
+		}
+	})
+
+	t.Run("pane 0 with file list prevFocused shows diff view", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneInfo
+		m.prevFocused = PaneFileList
+		if m.showInfoView() {
+			t.Error("showInfoView() should be false when prevFocused is FileList")
+		}
+	})
+}
+
+func TestDetailPaneTitle(t *testing.T) {
+	t.Run("title is Info when status pane was last focused", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneStatus
+		m.syncFocus()
+		m.updateDimensions()
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Info") {
+			t.Errorf("View() should contain '[0]─Info' when Status is focused, got relevant portion missing")
+		}
+	})
+
+	t.Run("title is Diff with path when file list is focused and file selected", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneFileList
+		m.syncFocus()
+		m.diffView.SetDimensions(80, 20)
+		m.diffView.SetContent(".zshrc", "+line")
+		m.updateDimensions()
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Diff — .zshrc") {
+			t.Errorf("View() should contain '[0]─Diff — .zshrc'")
+		}
+	})
+
+	t.Run("title is Diff when file list is focused with no file selected", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneFileList
+		m.syncFocus()
+		m.updateDimensions()
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Diff") {
+			t.Errorf("View() should contain '[0]─Diff'")
+		}
+		if strings.Contains(view, "[0]─Info") {
+			t.Error("View() should not contain '[0]─Info' when FileList is focused")
+		}
+	})
+
+	t.Run("pane 0 focused preserves info context from status", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneStatus
+		m.syncFocus()
+		m.updateDimensions()
+		// Now press 0 to focus pane 0
+		m, _ = sendKey(m, "0")
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Info") {
+			t.Errorf("View() should preserve '[0]─Info' context after pressing 0 from Status")
+		}
+	})
+
+	t.Run("pane 0 focused preserves diff context from file list", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneFileList
+		m.syncFocus()
+		m.diffView.SetDimensions(80, 20)
+		m.diffView.SetContent(".vimrc", "-old")
+		m.updateDimensions()
+		// Now press 0 to focus pane 0
+		m, _ = sendKey(m, "0")
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Diff — .vimrc") {
+			t.Errorf("View() should preserve '[0]─Diff — .vimrc' context after pressing 0 from FileList")
+		}
+	})
+
+	t.Run("switching left-side focus updates pane 0 immediately", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneStatus
+		m.syncFocus()
+		m.updateDimensions()
+		view := stripAnsi(m.View())
+		if !strings.Contains(view, "[0]─Info") {
+			t.Fatal("expected [0]─Info initially")
+		}
+		// Tab to file list
+		m, _ = sendKey(m, "tab")
+		view = stripAnsi(m.View())
+		if strings.Contains(view, "[0]─Info") {
+			t.Error("View() should switch from Info to Diff when focus moves to FileList")
+		}
+		if !strings.Contains(view, "[0]─Diff") {
+			t.Error("View() should contain '[0]─Diff' after switching to FileList")
+		}
+	})
+}
+
+func TestInfoViewContent(t *testing.T) {
+	t.Run("contains expected strings", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		content := m.renderInfoContent()
+		checks := []string{
+			"lazychez",
+			"dev", // version from newTestModel
+			"github.com/nickrotondo/lazychez",
+			"Report issues",
+			"Nick Rotondo",
+		}
+		for _, want := range checks {
+			if !strings.Contains(content, want) {
+				t.Errorf("renderInfoContent() missing %q", want)
+			}
+		}
+	})
+
+	t.Run("uses build-time version", func(t *testing.T) {
+		cm := newMockChezmoi()
+		g := newMockGit()
+		m := New(cm, g, "v1.2.3")
+		m.width = 120
+		m.height = 40
+		m.updateDimensions()
+		content := m.renderInfoContent()
+		if !strings.Contains(content, "v1.2.3") {
+			t.Errorf("renderInfoContent() missing version 'v1.2.3'")
+		}
+	})
+
+	t.Run("info view renders without panic in View", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.focused = PaneStatus
+		m.updateDimensions()
+		// Should not panic
+		_ = m.View()
+	})
+
+	t.Run("info view renders in narrow mode", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		m.width = 60
+		m.focused = PaneStatus
+		m.updateDimensions()
+		// Should not panic
+		_ = m.View()
 	})
 }

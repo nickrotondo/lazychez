@@ -90,27 +90,30 @@ func (m *mockChezmoiRunner) SourcePath() string {
 
 // mockGitRunner implements git.Runner for testing.
 type mockGitRunner struct {
-	statusEntries []git.StatusEntry
-	statusErr     error
-	diffOutput    map[string]string
-	diffErr       map[string]error
-	addErr        map[string]error
-	addAllErr     error
-	commitErr     error
-	pushErr       error
-	pullErr       error
-	resetErr      map[string]error
-	restoreErr    map[string]error
-	cleanErr      map[string]error
+	statusEntries    []git.StatusEntry
+	statusErr        error
+	diffOutput       map[string]string
+	diffErr          map[string]error
+	addErr           map[string]error
+	addAllErr        error
+	commitErr        error
+	pushErr          error
+	pullErr          error
+	resetErr         map[string]error
+	restoreErr       map[string]error
+	cleanErr         map[string]error
+	aheadBehindInfo  git.AheadBehindInfo
+	aheadBehindErr   error
 
-	addCalls     []string
-	addAllCalled bool
-	commitCalls  []string
-	pushCalled   bool
-	pullCalled   bool
-	resetCalls   []string
-	restoreCalls []string
-	cleanCalls   []string
+	addCalls           []string
+	addAllCalled       bool
+	commitCalls        []string
+	pushCalled         bool
+	pullCalled         bool
+	resetCalls         []string
+	restoreCalls       []string
+	cleanCalls         []string
+	aheadBehindCalled  bool
 }
 
 func newMockGit() *mockGitRunner {
@@ -170,6 +173,11 @@ func (m *mockGitRunner) Restore(_ context.Context, path string) error {
 func (m *mockGitRunner) Clean(_ context.Context, path string) error {
 	m.cleanCalls = append(m.cleanCalls, path)
 	return m.cleanErr[path]
+}
+
+func (m *mockGitRunner) AheadBehind(_ context.Context) (git.AheadBehindInfo, error) {
+	m.aheadBehindCalled = true
+	return m.aheadBehindInfo, m.aheadBehindErr
 }
 
 // newTestModel creates a Model with mock runners and dimensions set for testing.

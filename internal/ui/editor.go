@@ -47,25 +47,6 @@ func resolveEditor() (string, []string) {
 	return "vi", nil
 }
 
-func editorCmd(editor string, args []string, filePath string) tea.Cmd {
-	fullArgs := append(append([]string{}, args...), filePath)
-	if isGUIEditor(editor) {
-		return func() tea.Msg {
-			err := exec.Command(editor, fullArgs...).Run()
-			return EditorFinishedMsg{Err: err}
-		}
-	}
-	c := exec.Command(editor, fullArgs...)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return EditorFinishedMsg{Err: err}
-	})
-}
-
-func openInEditor(filePath string) tea.Cmd {
-	editor, args := resolveEditor()
-	return editorCmd(editor, args, filePath)
-}
-
 func chezmoiEdit(filePath string) tea.Cmd {
 	editor, _ := resolveEditor()
 	if isGUIEditor(editor) {

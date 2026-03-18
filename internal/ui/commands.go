@@ -238,8 +238,29 @@ func reverseDiff(diff string) string {
 	return result
 }
 
+func fetchAheadBehind(r git.Runner) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		info, err := r.AheadBehind(ctx)
+		return AheadBehindMsg{
+			Ahead:  info.Ahead,
+			Behind: info.Behind,
+			Branch: info.Branch,
+			Remote: info.Remote,
+			Err:    err,
+		}
+	}
+}
+
 func clearStatusAfter() tea.Cmd {
 	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
 		return ClearStatusMsg{}
+	})
+}
+
+func scheduleRefreshTick() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+		return TickMsg{}
 	})
 }

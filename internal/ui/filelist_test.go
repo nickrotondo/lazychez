@@ -22,6 +22,28 @@ func TestDriftKindSortOrder(t *testing.T) {
 	}
 }
 
+func TestClassifyDrift(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry chezmoi.StatusEntry
+		want  DriftKind
+	}{
+		{"source edited: ' M'", chezmoi.StatusEntry{SourceState: ' ', DestState: 'M'}, DriftSourceEdited},
+		{"source added: ' A'", chezmoi.StatusEntry{SourceState: ' ', DestState: 'A'}, DriftSourceEdited},
+		{"dest edited: 'MM'", chezmoi.StatusEntry{SourceState: 'M', DestState: 'M'}, DriftDestEdited},
+		{"dest edited: 'M '", chezmoi.StatusEntry{SourceState: 'M', DestState: ' '}, DriftDestEdited},
+		{"dest added: 'A '", chezmoi.StatusEntry{SourceState: 'A', DestState: ' '}, DriftDestEdited},
+		{"dest deleted: 'D '", chezmoi.StatusEntry{SourceState: 'D', DestState: ' '}, DriftDestEdited},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyDrift(tt.entry); got != tt.want {
+				t.Errorf("classifyDrift() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFileItemHasDrift(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -49,7 +71,7 @@ func TestMergeFilesWithStatus(t *testing.T) {
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
 			{Path: ".gitconfig", SourceRelPath: "dot_gitconfig"},
 		}
-		items := MergeFilesWithStatus(managed, nil, nil)
+		items := MergeFilesWithStatus(managed, nil)
 		if len(items) != 2 {
 			t.Fatalf("got %d items, want 2", len(items))
 		}
@@ -60,54 +82,55 @@ func TestMergeFilesWithStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("dest edited when not in git modified", func(t *testing.T) {
+	t.Run("source edited via chezmoi edit", func(t *testing.T) {
 		managed := []chezmoi.ManagedFile{
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
 		}
+		// chezmoi status ' M': dest unchanged, apply will modify → source was edited
 		status := []chezmoi.StatusEntry{
 			{SourceState: ' ', DestState: 'M', Path: ".zshrc"},
 		}
-		items := MergeFilesWithStatus(managed, status, nil)
-		if len(items) != 1 {
-			t.Fatalf("got %d items, want 1", len(items))
-		}
-		if items[0].Drift != DriftDestEdited {
-			t.Errorf("drift = %d, want DriftDestEdited", items[0].Drift)
-		}
-		if items[0].DestState != 'M' {
-			t.Errorf("DestState = %c, want M", items[0].DestState)
-		}
-	})
-
-	t.Run("source edited when in git modified", func(t *testing.T) {
-		managed := []chezmoi.ManagedFile{
-			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
-		}
-		status := []chezmoi.StatusEntry{
-			{SourceState: 'M', DestState: ' ', Path: ".zshrc"},
-		}
-		gitModified := map[string]bool{"dot_zshrc": true}
-		items := MergeFilesWithStatus(managed, status, gitModified)
+		items := MergeFilesWithStatus(managed, status)
 		if len(items) != 1 {
 			t.Fatalf("got %d items, want 1", len(items))
 		}
 		if items[0].Drift != DriftSourceEdited {
 			t.Errorf("drift = %d, want DriftSourceEdited", items[0].Drift)
 		}
+		if items[0].DestState != 'M' {
+			t.Errorf("DestState = %c, want M", items[0].DestState)
+		}
 	})
 
-	t.Run("orphan status entry appended as dest edited", func(t *testing.T) {
+	t.Run("dest edited directly", func(t *testing.T) {
 		managed := []chezmoi.ManagedFile{
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
 		}
+		// chezmoi status 'MM': dest modified since last apply, apply will also modify → dest was edited
 		status := []chezmoi.StatusEntry{
-			{SourceState: ' ', DestState: 'A', Path: ".bashrc"},
+			{SourceState: 'M', DestState: 'M', Path: ".zshrc"},
 		}
-		items := MergeFilesWithStatus(managed, status, nil)
+		items := MergeFilesWithStatus(managed, status)
+		if len(items) != 1 {
+			t.Fatalf("got %d items, want 1", len(items))
+		}
+		if items[0].Drift != DriftDestEdited {
+			t.Errorf("drift = %d, want DriftDestEdited", items[0].Drift)
+		}
+	})
+
+	t.Run("orphan status entry uses chezmoi columns", func(t *testing.T) {
+		managed := []chezmoi.ManagedFile{
+			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
+		}
+		// Orphan with first col 'M' → dest edited
+		status := []chezmoi.StatusEntry{
+			{SourceState: 'M', DestState: 'A', Path: ".bashrc"},
+		}
+		items := MergeFilesWithStatus(managed, status)
 		if len(items) != 2 {
 			t.Fatalf("got %d items, want 2", len(items))
 		}
-		// Find the orphan
 		var orphan *FileItem
 		for i := range items {
 			if items[i].Path == ".bashrc" {
@@ -122,6 +145,29 @@ func TestMergeFilesWithStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("orphan with source edit", func(t *testing.T) {
+		managed := []chezmoi.ManagedFile{
+			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
+		}
+		// Orphan with first col ' ' → source edited
+		status := []chezmoi.StatusEntry{
+			{SourceState: ' ', DestState: 'A', Path: ".bashrc"},
+		}
+		items := MergeFilesWithStatus(managed, status)
+		var orphan *FileItem
+		for i := range items {
+			if items[i].Path == ".bashrc" {
+				orphan = &items[i]
+			}
+		}
+		if orphan == nil {
+			t.Fatal("orphan .bashrc not found")
+		}
+		if orphan.Drift != DriftSourceEdited {
+			t.Errorf("orphan drift = %d, want DriftSourceEdited", orphan.Drift)
+		}
+	})
+
 	t.Run("sort order dest then source then synced", func(t *testing.T) {
 		managed := []chezmoi.ManagedFile{
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
@@ -129,11 +175,10 @@ func TestMergeFilesWithStatus(t *testing.T) {
 			{Path: ".vimrc", SourceRelPath: "dot_vimrc"},
 		}
 		status := []chezmoi.StatusEntry{
-			{SourceState: 'M', DestState: ' ', Path: ".zshrc"},  // source edited
-			{SourceState: ' ', DestState: 'M', Path: ".bashrc"}, // dest edited
+			{SourceState: ' ', DestState: 'M', Path: ".zshrc"},  // source edited (' M')
+			{SourceState: 'M', DestState: 'M', Path: ".bashrc"}, // dest edited ('MM')
 		}
-		gitModified := map[string]bool{"dot_zshrc": true}
-		items := MergeFilesWithStatus(managed, status, gitModified)
+		items := MergeFilesWithStatus(managed, status)
 
 		if len(items) != 3 {
 			t.Fatalf("got %d items, want 3", len(items))
@@ -156,7 +201,7 @@ func TestMergeFilesWithStatus(t *testing.T) {
 			{Path: ".bashrc", SourceRelPath: "dot_bashrc"},
 			{Path: ".config", SourceRelPath: "dot_config"},
 		}
-		items := MergeFilesWithStatus(managed, nil, nil)
+		items := MergeFilesWithStatus(managed, nil)
 		// All DriftNone, should be sorted alphabetically
 		if items[0].Path != ".bashrc" {
 			t.Errorf("items[0].Path = %q, want .bashrc", items[0].Path)
@@ -170,7 +215,7 @@ func TestMergeFilesWithStatus(t *testing.T) {
 	})
 
 	t.Run("empty inputs", func(t *testing.T) {
-		items := MergeFilesWithStatus(nil, nil, nil)
+		items := MergeFilesWithStatus(nil, nil)
 		if len(items) != 0 {
 			t.Errorf("got %d items, want 0", len(items))
 		}
@@ -196,7 +241,7 @@ func TestInsertHeadings(t *testing.T) {
 
 	t.Run("single drift group gets heading", func(t *testing.T) {
 		files := []FileItem{
-			{Path: ".zshrc", SourceState: ' ', DestState: 'M', Drift: DriftDestEdited},
+			{Path: ".zshrc", SourceState: 'M', DestState: 'M', Drift: DriftDestEdited},
 			{Path: ".vimrc", SourceState: ' ', DestState: ' ', Drift: DriftNone},
 		}
 		result := insertHeadings(files)
@@ -220,8 +265,8 @@ func TestInsertHeadings(t *testing.T) {
 
 	t.Run("all three groups get headings", func(t *testing.T) {
 		files := []FileItem{
-			{Path: ".bashrc", Drift: DriftDestEdited, SourceState: ' ', DestState: 'M'},
-			{Path: ".zshrc", Drift: DriftSourceEdited, SourceState: 'M', DestState: ' '},
+			{Path: ".bashrc", Drift: DriftDestEdited, SourceState: 'M', DestState: 'M'},
+			{Path: ".zshrc", Drift: DriftSourceEdited, SourceState: ' ', DestState: 'M'},
 			{Path: ".vimrc", Drift: DriftNone, SourceState: ' ', DestState: ' '},
 		}
 		result := insertHeadings(files)

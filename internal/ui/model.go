@@ -19,10 +19,10 @@ import (
 type PaneID int
 
 const (
-	PaneFileList PaneID = iota
-	PaneGitStatus
-	PaneDiff
-	paneCount
+	PaneInfo      PaneID = iota // 0 — contextual detail pane, excluded from tab cycle
+	PaneFileList                // 1
+	PaneGitStatus               // 2
+	PaneStatus                  // 3
 )
 
 type OverlayMode int
@@ -46,9 +46,10 @@ type Model struct {
 	focused     PaneID
 	prevFocused PaneID // last side-panel pane before entering diff
 
-	fileList  FileListModel
-	gitStatus GitStatusModel
-	diffView  DiffViewModel
+	statusPane StatusModel
+	fileList   FileListModel
+	gitStatus  GitStatusModel
+	diffView   DiffViewModel
 
 	// Overlay state
 	overlay          OverlayMode
@@ -84,6 +85,8 @@ func New(chezmoiRunner chezmoi.Runner, gitRunner git.Runner, version string) Mod
 
 	return Model{
 		focused:     PaneFileList,
+		prevFocused: PaneFileList,
+		statusPane:  NewStatusModel(),
 		fileList:    NewFileListModel(),
 		gitStatus:   NewGitStatusModel(),
 		diffView:    NewDiffViewModel(),
@@ -104,6 +107,8 @@ func (m Model) Init() tea.Cmd {
 		fetchManagedFiles(m.chezmoi),
 		fetchStatus(m.chezmoi),
 		fetchGitStatus(m.git),
+		fetchAheadBehind(m.git),
+		scheduleRefreshTick(),
 	)
 }
 
@@ -160,6 +165,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focused == PaneGitStatus {
 			return m, m.fetchGitDiffForSelected()
 		}
+		return m, nil
+
+	case AheadBehindMsg:
+		if msg.Err != nil {
+			m.setStatus(fmt.Sprintf("Git error: %v", msg.Err), true)
+			return m, clearStatusAfter()
+		}
+		m.statusPane.SetAheadBehind(msg.Ahead, msg.Behind, msg.Branch, msg.Remote)
 		return m, nil
 
 	case AddResultMsg:
@@ -293,12 +306,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusError = false
 		return m, nil
 
+	case TickMsg:
+		return m, tea.Batch(m.refreshAll(), scheduleRefreshTick())
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 
-	// Forward to diff viewport for scroll updates
-	if m.focused == PaneDiff {
+	// Forward to diff viewport for scroll updates (only when showing diff, not info)
+	if m.focused == PaneInfo && !m.showInfoView() {
 		var cmd tea.Cmd
 		m.diffView, cmd = m.diffView.Update(msg)
 		return m, cmd
@@ -369,28 +385,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
-	case "tab":
-		m.setFocus((m.focused + 1) % paneCount)
+	case "tab", "L":
+		m.setFocus(nextInCycle(m.focused))
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
-	case "shift+tab":
-		m.setFocus((m.focused - 1 + paneCount) % paneCount)
+	case "shift+tab", "H":
+		m.setFocus(prevInCycle(m.focused))
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
-	case "H":
-		m.setFocus((m.focused - 1 + paneCount) % paneCount)
+	case "right":
+		m.setFocus(nextInCycle(m.focused))
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
-	case "L":
-		m.setFocus((m.focused + 1) % paneCount)
-		m.updateDimensions()
-		return m, m.fetchDiffForFocusedPane()
-	case "left", "right":
-		if m.focused == PaneFileList {
-			m.setFocus(PaneGitStatus)
-		} else {
-			m.setFocus(PaneFileList)
-		}
+	case "left":
+		m.setFocus(prevInCycle(m.focused))
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
 	case "1":
@@ -401,8 +409,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus(PaneGitStatus)
 		m.updateDimensions()
 		return m, m.fetchDiffForFocusedPane()
+	case "3":
+		m.setFocus(PaneStatus)
+		m.updateDimensions()
+		return m, m.fetchDiffForFocusedPane()
 	case "0":
-		m.setFocus(PaneDiff)
+		m.setFocus(PaneInfo)
 		m.updateDimensions()
 		return m, nil
 	case "r":
@@ -422,15 +434,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleFileListKey(msg)
 	case PaneGitStatus:
 		return m.handleGitStatusKey(msg)
-	case PaneDiff:
+	case PaneInfo:
 		if msg.String() == "esc" {
 			m.setFocus(m.prevFocused)
 			m.updateDimensions()
 			return m, m.fetchDiffForFocusedPane()
 		}
-		var cmd tea.Cmd
-		m.diffView, cmd = m.diffView.Update(msg)
-		return m, cmd
+		if !m.showInfoView() {
+			var cmd tea.Cmd
+			m.diffView, cmd = m.diffView.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -481,17 +495,6 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.setStatus("Waiting for edit...", false)
 			return m, chezmoiEdit(filepath.Join(homeDir, path))
-		}
-	case "E":
-		path := m.fileList.SelectedPath()
-		if path != "" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				m.setStatus(fmt.Sprintf("Error: %v", err), true)
-				return m, clearStatusAfter()
-			}
-			m.setStatus("Waiting for edit...", false)
-			return m, openInEditor(filepath.Join(homeDir, path))
 		}
 	case "+":
 		m.setStatus("Loading unmanaged files...", false)
@@ -654,13 +657,57 @@ func (m *Model) initHelpViewport() {
 	m.helpViewport.SetContent(content)
 }
 
-// setFocus changes the focused pane and remembers the previous side-panel
-// so that Esc from the diff pane can return to the originating pane.
+// nextInCycle returns the next pane in the tab cycle (1→2→3→1), skipping pane 0.
+func nextInCycle(current PaneID) PaneID {
+	switch current {
+	case PaneFileList:
+		return PaneGitStatus
+	case PaneGitStatus:
+		return PaneStatus
+	case PaneStatus:
+		return PaneFileList
+	default:
+		return PaneFileList
+	}
+}
+
+// prevInCycle returns the previous pane in the tab cycle (1→3→2→1), skipping pane 0.
+func prevInCycle(current PaneID) PaneID {
+	switch current {
+	case PaneFileList:
+		return PaneStatus
+	case PaneGitStatus:
+		return PaneFileList
+	case PaneStatus:
+		return PaneGitStatus
+	default:
+		return PaneFileList
+	}
+}
+
+// setFocus changes the focused pane and remembers the previous left-side pane
+// so that Esc from the info pane can return to the originating pane.
 func (m *Model) setFocus(pane PaneID) {
-	if pane == PaneDiff && m.focused != PaneDiff {
+	if pane == PaneInfo && m.focused != PaneInfo {
 		m.prevFocused = m.focused
 	}
 	m.focused = pane
+}
+
+// detailPaneContext returns the left-side pane that determines what pane 0 shows.
+// When pane 0 is focused, it uses prevFocused (preserving context).
+// Otherwise it uses the currently focused pane.
+func (m Model) detailPaneContext() PaneID {
+	if m.focused == PaneInfo {
+		return m.prevFocused
+	}
+	return m.focused
+}
+
+// showInfoView returns true when pane 0 should render the info view
+// instead of the diff view (i.e. when the Status pane is the context).
+func (m Model) showInfoView() bool {
+	return m.detailPaneContext() == PaneStatus
 }
 
 func (m *Model) setStatus(msg string, isError bool) {
@@ -682,8 +729,9 @@ func (m *Model) updateDimensionsWide() {
 	rightWidth := m.width - leftWidth
 	contentHeight := m.height - 2
 
-	fileH, gitH := m.distributeLeftColumn(contentHeight)
+	statusH, fileH, gitH := m.distributeLeftColumn(contentHeight)
 
+	m.statusPane.SetDimensions(max(0, leftWidth-2), max(0, statusH-paneChrome))
 	m.fileList.SetDimensions(max(0, leftWidth-2), max(0, fileH-paneChrome))
 	m.gitStatus.SetDimensions(max(0, leftWidth-2), max(0, gitH-paneChrome))
 	m.diffView.SetDimensions(max(0, rightWidth-2), max(0, contentHeight-paneChrome))
@@ -693,7 +741,7 @@ func (m *Model) updateDimensionsNarrow() {
 	innerW := max(0, m.width-2)
 	contentHeight := m.height - 2
 
-	fileH, gitH, diffH := m.distributeNarrow(contentHeight)
+	statusH, fileH, gitH, diffH := m.distributeNarrow(contentHeight)
 
 	// Collapsed panes (height=1) get 0 inner content space.
 	narrowInner := func(h int) int {
@@ -703,23 +751,21 @@ func (m *Model) updateDimensionsNarrow() {
 		return max(0, h-paneChrome)
 	}
 
+	m.statusPane.SetDimensions(innerW, narrowInner(statusH))
 	m.fileList.SetDimensions(innerW, narrowInner(fileH))
 	m.gitStatus.SetDimensions(innerW, narrowInner(gitH))
 	m.diffView.SetDimensions(innerW, narrowInner(diffH))
 }
 
 func (m *Model) syncFocus() {
+	m.statusPane.SetFocused(m.focused == PaneStatus)
 	m.fileList.SetFocused(m.focused == PaneFileList)
 	m.gitStatus.SetFocused(m.focused == PaneGitStatus)
-	m.diffView.SetFocused(m.focused == PaneDiff)
+	m.diffView.SetFocused(m.focused == PaneInfo)
 }
 
 func (m *Model) rebuildFileList() {
-	gitPaths := make(map[string]bool, len(m.gitStatus.entries))
-	for _, e := range m.gitStatus.entries {
-		gitPaths[e.Path] = true
-	}
-	items := MergeFilesWithStatus(m.managedFiles, m.statusData, gitPaths)
+	items := MergeFilesWithStatus(m.managedFiles, m.statusData)
 	m.fileList.SetFiles(items)
 }
 
@@ -762,5 +808,6 @@ func (m *Model) refreshAll() tea.Cmd {
 		fetchManagedFiles(m.chezmoi),
 		fetchStatus(m.chezmoi),
 		fetchGitStatus(m.git),
+		fetchAheadBehind(m.git),
 	)
 }
