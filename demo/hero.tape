@@ -32,8 +32,14 @@ Sleep 1s
 Type "lazychez"
 Enter
 Wait+Screen /Managed Files/
+Type "3"
+Sleep 500ms
 Show
 Sleep 2s
+
+# Switch to managed files pane
+Type "1"
+Sleep 1s
 
 # Browse files with vim-style navigation
 Type "j"
