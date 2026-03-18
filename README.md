@@ -21,7 +21,7 @@ Built with Go and the [Bubbletea](https://github.com/charmbracelet/bubbletea) fr
 
 ```bash
 brew tap nickrotondo/tap
-brew install --cask lazychez
+brew install lazychez
 ```
 
 ### Go
