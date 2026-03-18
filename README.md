@@ -48,6 +48,7 @@ go build
 
 - [chezmoi](https://www.chezmoi.io/install/) installed and initialized (`chezmoi init`)
 - Git
+- A git remote configured in your chezmoi source directory (needed for push/pull — see [chezmoi quick start](https://www.chezmoi.io/quick-start/))
 
 ## Usage
 

@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// ErrNoRemote indicates that no git remote is configured for push/pull.
+var ErrNoRemote = errors.New("no remote configured — run 'chezmoi init <repo-url>' to set one up")
+
 type StatusEntry struct {
 	XY   string // e.g. "M ", "??", "A "
 	Path string
@@ -110,6 +113,9 @@ func (c *CLI) Commit(ctx context.Context, message string) error {
 func (c *CLI) Push(ctx context.Context) error {
 	_, err := c.run(ctx, "push")
 	if err != nil {
+		if isNoRemoteErr(err) {
+			return ErrNoRemote
+		}
 		return fmt.Errorf("git push: %w", err)
 	}
 	return nil
@@ -118,9 +124,19 @@ func (c *CLI) Push(ctx context.Context) error {
 func (c *CLI) Pull(ctx context.Context) error {
 	_, err := c.run(ctx, "pull")
 	if err != nil {
+		if isNoRemoteErr(err) {
+			return ErrNoRemote
+		}
 		return fmt.Errorf("git pull: %w", err)
 	}
 	return nil
+}
+
+func isNoRemoteErr(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no configured push destination") ||
+		strings.Contains(msg, "no tracking information") ||
+		strings.Contains(msg, "no such remote")
 }
 
 func (c *CLI) Reset(ctx context.Context, path string) error {

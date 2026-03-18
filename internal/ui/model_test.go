@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/nickrotondo/lazychez/internal/chezmoi"
+	"github.com/nickrotondo/lazychez/internal/git"
 )
 
 // --- Message handling tests ---
@@ -247,6 +248,15 @@ func TestUpdate_PushResultMsg(t *testing.T) {
 			t.Errorf("statusMsg = %q", m.statusMsg)
 		}
 	})
+
+	t.Run("no remote error", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		result, _ := m.Update(PushResultMsg{Err: git.ErrNoRemote})
+		m = result.(Model)
+		if !strings.Contains(m.statusMsg, "chezmoi init") {
+			t.Errorf("statusMsg should mention chezmoi init, got %q", m.statusMsg)
+		}
+	})
 }
 
 func TestUpdate_PullResultMsg(t *testing.T) {
@@ -272,6 +282,15 @@ func TestUpdate_PullResultMsg(t *testing.T) {
 		// cmd is clearStatusAfter only, not a batch with refresh
 		if cmd == nil {
 			t.Error("cmd should not be nil (clearStatusAfter)")
+		}
+	})
+
+	t.Run("no remote error", func(t *testing.T) {
+		m, _, _ := newTestModel()
+		result, _ := m.Update(PullResultMsg{Err: git.ErrNoRemote})
+		m = result.(Model)
+		if !strings.Contains(m.statusMsg, "chezmoi init") {
+			t.Errorf("statusMsg should mention chezmoi init, got %q", m.statusMsg)
 		}
 	})
 }
