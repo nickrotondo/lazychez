@@ -141,3 +141,17 @@ lazychez wraps the `chezmoi` and `git` CLIs under the hood. It calls `chezmoi ma
 
 - [Go](https://go.dev/)
 - [Bubbletea](https://github.com/charmbracelet/bubbletea) + [Lipgloss](https://github.com/charmbracelet/lipgloss) from the [Charm](https://charm.sh/) ecosystem
+
+---
+
+```
+ ___                                     __
+/\_ \                                   /\ \
+\//\ \      __     ____    __  __    ___\ \ \___      __   ____
+  \ \ \   /'__`\  /\_ ,`\ /\ \/\ \  /'___\ \  _ `\  /'__`\/\_ ,`\
+   \_\ \_/\ \L\.\_\/_/  /_\ \ \_\ \/\ \__/\ \ \ \ \/\  __/\/_/  /_
+   /\____\ \__/.\_\ /\____\\/`____ \ \____\\ \_\ \_\ \____\ /\____\
+   \/____/\/__/\/_/ \/____/ `/___/> \/____/ \/_/\/_/\/____/ \/____/
+                               /\___/
+                               \/__/
+```
