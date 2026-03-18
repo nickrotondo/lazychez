@@ -6,7 +6,9 @@ Your `.zshrc` is on three machines and none of them match. Sound familiar? [chez
 
 lazychez gives chezmoi a proper terminal UI. Browse your managed files, see exactly what's drifted, view diffs, add or apply changes, and push it all to git — without stringing together five commands from memory.
 
-<!-- TODO: add hero GIF here -->
+<p align="center">
+  <img src="demo/hero.gif" alt="lazychez demo" width="800" />
+</p>
 
 ## Why lazychez
 
