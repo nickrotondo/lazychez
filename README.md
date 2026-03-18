@@ -18,7 +18,7 @@ lazychez gives chezmoi a proper terminal UI. Browse your managed files, see exac
 - **Fuzzy file picker** — add unmanaged files to chezmoi without typing paths
 - **Forget files** — remove files from chezmoi management when you're done with them
 - **Responsive layout** — side-by-side on wide terminals, stacked on narrow ones
-- **Vim-style navigation** — because of course
+- **Vim-style navigation** — btw
 
 ## Install
 
@@ -60,11 +60,11 @@ Run `lazychez` from anywhere — it automatically finds your chezmoi source dire
 
 The UI has three panes:
 
-| Pane | What it shows |
-| --- | --- |
+| Pane                  | What it shows                                   |
+| --------------------- | ----------------------------------------------- |
 | **[1] Managed Files** | All chezmoi-managed files with drift indicators |
-| **[2] Source Git** | Git status of your chezmoi source directory |
-| **[0] Diff** | Diff view for the selected file |
+| **[2] Source Git**    | Git status of your chezmoi source directory     |
+| **[0] Diff**          | Diff view for the selected file                 |
 
 Wide terminals (100+ columns) get a side-by-side layout — file list and git status on the left, diff on the right. Narrow terminals stack everything vertically.
 
@@ -76,66 +76,66 @@ lazychez wraps the `chezmoi` and `git` CLIs under the hood. It calls `chezmoi ma
 
 **Drift detection** compares source and destination states:
 
-- **●  Source edited** — chezmoi source has changes not yet applied to `~`
-- **◆  Dest edited** — a file in `~` was changed outside chezmoi
+- **● Source edited** — chezmoi source has changes not yet applied to `~`
+- **◆ Dest edited** — a file in `~` was changed outside chezmoi
 
 ### Keybindings
 
 <details>
 <summary><strong>Navigation</strong></summary>
 
-| Key | Action |
-| --- | --- |
-| `j` / `k` | Move down / up |
-| `g` / `G` | Jump to top / bottom |
-| `Ctrl+d` / `Ctrl+u` | Half-page down / up |
-| `H` / `L` | Previous / next pane |
-| `Tab` / `Shift+Tab` | Next / previous pane |
-| `←` / `→` | Cycle between file list and git |
-| `0` / `1` / `2` | Jump to pane |
-| `Esc` | Back from diff pane |
+| Key                 | Action                          |
+| ------------------- | ------------------------------- |
+| `j` / `k`           | Move down / up                  |
+| `g` / `G`           | Jump to top / bottom            |
+| `Ctrl+d` / `Ctrl+u` | Half-page down / up             |
+| `H` / `L`           | Previous / next pane            |
+| `Tab` / `Shift+Tab` | Next / previous pane            |
+| `←` / `→`           | Cycle between file list and git |
+| `0` / `1` / `2`     | Jump to pane                    |
+| `Esc`               | Back from diff pane             |
 
 </details>
 
 <details>
 <summary><strong>Managed Files pane</strong></summary>
 
-| Key | Action |
-| --- | --- |
-| `Space` | Add file (copy destination → source) |
-| `a` | Apply file (copy source → destination) |
-| `A` | Apply all files |
-| `D` | Discard drift (revert the changed side) |
-| `e` | Edit source (`chezmoi edit`) |
-| `E` | Edit destination file |
-| `+` | Add unmanaged file (fuzzy file picker) |
-| `x` | Forget file (remove from chezmoi) |
+| Key     | Action                                  |
+| ------- | --------------------------------------- |
+| `Space` | Add file (copy destination → source)    |
+| `a`     | Apply file (copy source → destination)  |
+| `A`     | Apply all files                         |
+| `D`     | Discard drift (revert the changed side) |
+| `e`     | Edit source (`chezmoi edit`)            |
+| `E`     | Edit destination file                   |
+| `+`     | Add unmanaged file (fuzzy file picker)  |
+| `x`     | Forget file (remove from chezmoi)       |
 
 </details>
 
 <details>
 <summary><strong>Git pane</strong></summary>
 
-| Key | Action |
-| --- | --- |
-| `Space` | Stage / unstage file |
-| `a` | Stage all files |
-| `c` | Commit (opens message input) |
-| `p` | Pull from remote |
-| `P` | Push to remote |
-| `D` | Discard changes (with confirmation) |
+| Key     | Action                              |
+| ------- | ----------------------------------- |
+| `Space` | Stage / unstage file                |
+| `a`     | Stage all files                     |
+| `c`     | Commit (opens message input)        |
+| `p`     | Pull from remote                    |
+| `P`     | Push to remote                      |
+| `D`     | Discard changes (with confirmation) |
 
 </details>
 
 <details>
 <summary><strong>General</strong></summary>
 
-| Key | Action |
-| --- | --- |
-| `r` | Refresh all panes |
+| Key | Action              |
+| --- | ------------------- |
+| `r` | Refresh all panes   |
 | `C` | Edit chezmoi config |
 | `?` | Toggle help overlay |
-| `q` | Quit |
+| `q` | Quit                |
 
 </details>
 
