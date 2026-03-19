@@ -74,6 +74,15 @@ func (m GitStatusModel) EntryCount() int {
 	return len(m.entries)
 }
 
+func (m GitStatusModel) HasStagedFiles() bool {
+	for _, e := range m.entries {
+		if len(e.XY) >= 2 && e.XY[0] != ' ' && e.XY[0] != '?' {
+			return true
+		}
+	}
+	return false
+}
+
 func (m GitStatusModel) ContentLines() int {
 	return len(m.entries)
 }

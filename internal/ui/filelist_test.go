@@ -722,24 +722,26 @@ func TestFilter_EscDuringLocked(t *testing.T) {
 	}
 }
 
-func TestFilter_ClearsOnDataRefresh(t *testing.T) {
+func TestFilter_PreservedOnDataRefresh(t *testing.T) {
 	m := makeFilterModel()
 	m.StartFilter()
 	m.filterInput.SetValue("vim")
 	m.applyFilter()
 	m.LockFilter()
 
-	// Simulate data refresh by calling SetFiles (which is what ManagedFilesMsg triggers)
+	// Simulate data refresh by calling SetFiles — filter should be reapplied
 	m.SetFiles([]FileItem{
 		{Path: ".bashrc", SourceState: ' ', DestState: ' ', Drift: DriftNone},
+		{Path: ".vimrc", SourceState: ' ', DestState: ' ', Drift: DriftNone},
 		{Path: ".newfile", SourceState: ' ', DestState: ' ', Drift: DriftNone},
 	})
 
-	if m.filterMode != FilterInactive {
-		t.Errorf("filterMode = %d, want FilterInactive after SetFiles", m.filterMode)
+	if m.filterMode != FilterLocked {
+		t.Errorf("filterMode = %d, want FilterLocked after SetFiles", m.filterMode)
 	}
-	if m.FileCount() != 2 {
-		t.Errorf("FileCount() = %d, want 2", m.FileCount())
+	// Only .vimrc matches "vim"
+	if m.FileCount() != 1 {
+		t.Errorf("FileCount() = %d, want 1", m.FileCount())
 	}
 }
 

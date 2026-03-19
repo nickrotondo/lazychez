@@ -35,6 +35,7 @@ const (
 	OverlayConfirmGitDiscard
 	OverlayConfirmForget
 	OverlayAddFile
+	OverlayConfirmStageAll
 )
 
 // narrowBreakpoint is the width below which we switch to stacked layout.
@@ -133,7 +134,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.managedFiles = msg.Files
 		m.rebuildFileList()
 		m.updateDimensions()
-		return m, m.fetchDiffForSelected()
+		if m.focused == PaneFileList {
+			return m, m.fetchDiffForSelected()
+		}
+		return m, nil
 
 	case StatusMsg:
 		if msg.Err != nil {
@@ -143,7 +147,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusData = msg.Entries
 		m.rebuildFileList()
 		m.updateDimensions()
-		return m, m.fetchDiffForSelected()
+		if m.focused == PaneFileList {
+			return m, m.fetchDiffForSelected()
+		}
+		return m, nil
 
 	case DiffMsg:
 		if msg.Err != nil {
@@ -307,7 +314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case TickMsg:
-		return m, tea.Batch(m.refreshAll(), scheduleRefreshTick())
+		return m, tea.Batch(m.refreshLists(), scheduleRefreshTick())
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -361,6 +368,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case OverlayAddFile:
 		return m.handleAddFileKey(msg)
+
+	case OverlayConfirmStageAll:
+		switch msg.String() {
+		case "y":
+			m.overlay = OverlayCommit
+			m.commitInput.Reset()
+			m.commitInput.Focus()
+			return m, tea.Batch(stageAllFiles(m.git), textinput.Blink)
+		case "n", "esc":
+			m.overlay = OverlayNone
+		}
+		return m, nil
 
 	case OverlayConfirmGitDiscard:
 		switch msg.String() {
@@ -515,6 +534,11 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, applyFile(m.chezmoi, sel.Path)
 			}
 		}
+	case "enter":
+		if m.fileList.SelectedIsDir() {
+			m.fileList.ToggleCollapse()
+		}
+		return m, nil
 	case "/":
 		m.fileList.StartFilter()
 		return m, textinput.Blink
@@ -550,6 +574,14 @@ func (m Model) handleGitStatusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.gitStatus.HalfPageUp()
 	case "c":
+		if !m.gitStatus.HasStagedFiles() {
+			if m.gitStatus.EntryCount() == 0 {
+				m.setStatus("Nothing to commit", false)
+				return m, clearStatusAfter()
+			}
+			m.overlay = OverlayConfirmStageAll
+			return m, nil
+		}
 		m.overlay = OverlayCommit
 		m.commitInput.Reset()
 		m.commitInput.Focus()
@@ -772,6 +804,7 @@ func (m *Model) rebuildFileList() {
 func (m *Model) fetchDiffForSelected() tea.Cmd {
 	path := m.fileList.SelectedPath()
 	if path == "" {
+		m.diffView.SetContent("", "")
 		return nil
 	}
 	if diff, ok := m.diffCache[path]; ok {
@@ -783,9 +816,10 @@ func (m *Model) fetchDiffForSelected() tea.Cmd {
 	return fetchDiff(m.chezmoi, path, reverse)
 }
 
-func (m Model) fetchGitDiffForSelected() tea.Cmd {
+func (m *Model) fetchGitDiffForSelected() tea.Cmd {
 	path := m.gitStatus.SelectedPath()
 	if path == "" {
+		m.diffView.SetContent("", "")
 		return nil
 	}
 	return fetchGitDiff(m.git, path)
@@ -804,6 +838,15 @@ func (m *Model) fetchDiffForFocusedPane() tea.Cmd {
 
 func (m *Model) refreshAll() tea.Cmd {
 	m.diffCache = make(map[string]string)
+	return tea.Batch(
+		fetchManagedFiles(m.chezmoi),
+		fetchStatus(m.chezmoi),
+		fetchGitStatus(m.git),
+		fetchAheadBehind(m.git),
+	)
+}
+
+func (m *Model) refreshLists() tea.Cmd {
 	return tea.Batch(
 		fetchManagedFiles(m.chezmoi),
 		fetchStatus(m.chezmoi),

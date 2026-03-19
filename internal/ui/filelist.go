@@ -58,6 +58,13 @@ type FileItem struct {
 	Drift         DriftKind
 	IsHeading     bool
 	HeadingText   string
+
+	// Tree view fields
+	IsDir        bool   // true for directory nodes
+	DirPath      string // for dirs: collapse key
+	TreeDepth    int    // indentation level
+	TreeName     string // segment name to display
+	DirCollapsed bool   // whether this dir is collapsed
 }
 
 func (f FileItem) HasDrift() bool {
@@ -73,6 +80,9 @@ type FileListModel struct {
 	width    int
 	height   int
 
+	// Tree view state
+	collapsed map[string]bool // dir path → collapsed, persists across refreshes
+
 	// Filter state
 	filterMode  FilterMode
 	filterInput textinput.Model
@@ -80,19 +90,54 @@ type FileListModel struct {
 }
 
 func NewFileListModel() FileListModel {
-	return FileListModel{}
+	return FileListModel{
+		collapsed: make(map[string]bool),
+	}
 }
 
 func (m *FileListModel) SetFiles(files []FileItem) {
 	m.allItems = files
-	m.filterMode = FilterInactive
-	m.files = insertHeadings(files)
+	if m.filterMode != FilterInactive {
+		// Preserve active filter — reapply it to the new data
+		m.applyFilter()
+		return
+	}
+	m.rebuildDisplayList()
 	// Clamp cursor if file list shrunk
 	if m.cursor >= len(m.files) {
 		m.cursor = max(0, len(m.files)-1)
 	}
 	m.snapCursorToFile()
 	m.clampOffset()
+}
+
+func (m *FileListModel) rebuildDisplayList() {
+	// Partition items by drift group so drifted files rise to the top with headings.
+	groups := [3][]FileItem{} // 0=dest-edited, 1=source-edited, 2=synced
+	for _, f := range m.allItems {
+		groups[f.Drift.sortOrder()] = append(groups[f.Drift.sortOrder()], f)
+	}
+
+	hasDrift := len(groups[0]) > 0 || len(groups[1]) > 0
+
+	// Map sort-order index back to DriftKind for heading text.
+	orderToDrift := [3]DriftKind{DriftDestEdited, DriftSourceEdited, DriftNone}
+
+	var result []FileItem
+	for gi, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		if hasDrift {
+			result = append(result, FileItem{
+				IsHeading:   true,
+				HeadingText: headingText(orderToDrift[gi]),
+			})
+		}
+		tree := buildTree(group)
+		result = append(result, flattenTree(tree, m.collapsed)...)
+	}
+	m.files = result
 }
 
 func (m *FileListModel) SetDimensions(w, h int) {
@@ -106,23 +151,44 @@ func (m *FileListModel) SetFocused(focused bool) {
 }
 
 func (m FileListModel) SelectedPath() string {
-	if len(m.files) == 0 || m.files[m.cursor].IsHeading {
+	if len(m.files) == 0 || m.files[m.cursor].IsHeading || m.files[m.cursor].IsDir {
 		return ""
 	}
 	return m.files[m.cursor].Path
 }
 
 func (m FileListModel) SelectedItem() *FileItem {
-	if len(m.files) == 0 || m.cursor >= len(m.files) || m.files[m.cursor].IsHeading {
+	if len(m.files) == 0 || m.cursor >= len(m.files) || m.files[m.cursor].IsHeading || m.files[m.cursor].IsDir {
 		return nil
 	}
 	return &m.files[m.cursor]
 }
 
+func (m FileListModel) SelectedIsDir() bool {
+	if len(m.files) == 0 || m.cursor >= len(m.files) {
+		return false
+	}
+	return m.files[m.cursor].IsDir
+}
+
+func (m *FileListModel) ToggleCollapse() {
+	if len(m.files) == 0 || m.cursor >= len(m.files) || !m.files[m.cursor].IsDir {
+		return
+	}
+	dirPath := m.files[m.cursor].DirPath
+	m.collapsed[dirPath] = !m.collapsed[dirPath]
+	m.rebuildDisplayList()
+	// Clamp cursor
+	if m.cursor >= len(m.files) {
+		m.cursor = max(0, len(m.files)-1)
+	}
+	m.clampOffset()
+}
+
 func (m FileListModel) FileCount() int {
 	count := 0
 	for _, f := range m.files {
-		if !f.IsHeading {
+		if !f.IsHeading && !f.IsDir {
 			count++
 		}
 	}
@@ -140,7 +206,7 @@ func (m FileListModel) ScrollState() (offset, total int) {
 	return m.offset, len(m.files)
 }
 
-// CursorPosition returns the 1-based index among non-heading items and the total count.
+// CursorPosition returns the 1-based index among navigable items (excluding headings) and the total count.
 func (m FileListModel) CursorPosition() (current, total int) {
 	pos := 0
 	for i, f := range m.files {
@@ -158,7 +224,7 @@ func (m FileListModel) CursorPosition() (current, total int) {
 func (m FileListModel) DriftCount() int {
 	count := 0
 	for _, f := range m.files {
-		if !f.IsHeading && f.HasDrift() {
+		if !f.IsHeading && !f.IsDir && f.HasDrift() {
 			count++
 		}
 	}
@@ -294,88 +360,87 @@ func (m FileListModel) View() string {
 		}
 
 		selected := i == m.cursor && m.focused && m.filterMode != FilterTyping
+		indent := strings.Repeat("   ", f.TreeDepth)
 
-		// Determine indicator style — when selected, merge with selection background
-		// so the inner ANSI reset doesn't kill the highlight.
-		var indicatorStr string
-		switch {
-		case f.Drift == DriftSourceEdited:
-			if selected {
-				indicatorStr = lipgloss.NewStyle().Foreground(ModifiedColor).Background(SelectedBg).Bold(true).Render("●") + " "
-			} else {
-				indicatorStr = SourceEditedIndicator.String() + " "
-			}
-		case f.Drift == DriftDestEdited:
-			if selected {
-				indicatorStr = lipgloss.NewStyle().Foreground(TitleColor).Background(SelectedBg).Bold(true).Render("◆") + " "
-			} else {
-				indicatorStr = DestEditedIndicator.String() + " "
-			}
-		case f.SourceState == 'A' || f.DestState == 'A':
-			if selected {
-				indicatorStr = lipgloss.NewStyle().Foreground(AddedColor).Background(SelectedBg).Bold(true).Render("+") + " "
-			} else {
-				indicatorStr = AddedIndicator.String() + " "
-			}
-		case f.SourceState == 'D' || f.DestState == 'D':
-			if selected {
-				indicatorStr = lipgloss.NewStyle().Foreground(DeletedColor).Background(SelectedBg).Bold(true).Render("−") + " "
-			} else {
-				indicatorStr = DeletedIndicator.String() + " "
-			}
-		default:
-			indicatorStr = "  "
+		if f.IsDir {
+			lines = append(lines, m.renderDirLine(f, indent, selected))
+			continue
 		}
 
-		visIndicator := lipgloss.Width(indicatorStr)
-		pathMax := m.width - visIndicator
-
-		var text string
-		if pathMax <= 0 {
-			text = ""
-		} else if len(f.Path) <= pathMax {
-			text = f.Path
-			if pad := pathMax - len(text); pad > 0 {
-				text += strings.Repeat(" ", pad)
-			}
-		} else if m.focused {
-			indentStr := strings.Repeat(" ", visIndicator)
-			var b strings.Builder
-			remaining := f.Path
-			first := true
-			for len(remaining) > 0 {
-				n := min(len(remaining), pathMax)
-				chunk := remaining[:n]
-				remaining = remaining[n:]
-				if first {
-					b.WriteString(chunk)
-					first = false
-				} else {
-					b.WriteString("\n" + indentStr + chunk)
-				}
-				if pad := pathMax - len(chunk); pad > 0 {
-					b.WriteString(strings.Repeat(" ", pad))
-				}
-			}
-			text = b.String()
-		} else {
-			if pathMax > 1 {
-				text = f.Path[:pathMax-1] + "…"
-			}
-			if pad := pathMax - len(text); pad > 0 {
-				text += strings.Repeat(" ", pad)
-			}
-		}
-
-		if selected {
-			line := indicatorStr + SelectedItem.Render(text)
-			lines = append(lines, line)
-		} else {
-			lines = append(lines, indicatorStr+text)
-		}
+		lines = append(lines, m.renderFileLine(f, indent, selected))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m FileListModel) renderDirLine(f FileItem, indent string, selected bool) string {
+	arrow := "▼"
+	if f.DirCollapsed {
+		arrow = "▶"
+	}
+
+	dirStyle := lipgloss.NewStyle().Foreground(DirColor)
+	if selected {
+		dirStyle = dirStyle.Background(SelectedBg).Bold(true)
+	}
+
+	prefix := indent + dirStyle.Render(arrow)
+	name := dirStyle.Render(f.TreeName)
+	line := prefix + name
+	lineWidth := lipgloss.Width(line)
+	if pad := m.width - lineWidth; pad > 0 {
+		line += dirStyle.Render(strings.Repeat(" ", pad))
+	}
+	return line
+}
+
+func (m FileListModel) renderFileLine(f FileItem, indent string, selected bool) string {
+	// Determine indicator glyph and its color
+	var glyph string
+	var glyphColor lipgloss.Color
+	switch {
+	case f.Drift == DriftSourceEdited:
+		glyph = "●"
+		glyphColor = ModifiedColor
+	case f.Drift == DriftDestEdited:
+		glyph = "◆"
+		glyphColor = TitleColor
+	case f.SourceState == 'A' || f.DestState == 'A':
+		glyph = "+ "
+		glyphColor = AddedColor
+	case f.SourceState == 'D' || f.DestState == 'D':
+		glyph = "− "
+		glyphColor = DeletedColor
+	}
+
+	// Use TreeName (filename segment) for tree view, fall back to full Path
+	displayName := f.TreeName
+	if displayName == "" {
+		displayName = f.Path
+	}
+
+	// Build the plain-text content for width calculation
+	plainText := indent + glyph + displayName
+	plainWidth := lipgloss.Width(plainText)
+	padding := ""
+	if pad := m.width - plainWidth; pad > 0 {
+		padding = strings.Repeat(" ", pad)
+	}
+
+	if selected {
+		if glyph != "" {
+			return SelectedItem.Render(indent) +
+				lipgloss.NewStyle().Foreground(glyphColor).Background(SelectedBg).Bold(true).Render(glyph) +
+				SelectedItem.Render(displayName+padding)
+		}
+		return SelectedItem.Render(indent + displayName + padding)
+	}
+
+	// Normal (unselected) rendering
+	if glyph != "" {
+		return indent + lipgloss.NewStyle().Foreground(glyphColor).Bold(true).Render(glyph) + displayName + padding
+	}
+	return indent + displayName + padding
 }
 
 // MergeFilesWithStatus builds the merged and sorted file list.
@@ -512,22 +577,20 @@ func (m *FileListModel) StartFilter() {
 func (m *FileListModel) CancelFilter() {
 	m.filterMode = FilterInactive
 	m.filterInput.Blur()
-	m.files = insertHeadings(m.allItems)
+	m.rebuildDisplayList()
 	m.cursor = m.savedCursor
 	if m.cursor >= len(m.files) {
 		m.cursor = max(0, len(m.files)-1)
 	}
-	m.snapCursorToFile()
 	m.clampOffset()
 }
 
 func (m *FileListModel) applyFilter() {
 	query := m.filterInput.Value()
 	if query == "" {
-		m.files = insertHeadings(m.allItems)
+		m.rebuildDisplayList()
 		m.filterInput.TextStyle = lipgloss.NewStyle()
 		m.cursor = 0
-		m.snapCursorToFile()
 		m.clampOffset()
 		return
 	}
@@ -543,6 +606,7 @@ func (m *FileListModel) applyFilter() {
 		filtered[i] = m.allItems[match.Index]
 	}
 
+	// Filter shows flat list with full paths (no tree)
 	m.files = insertHeadings(filtered)
 	m.cursor = 0
 	m.snapCursorToFile()

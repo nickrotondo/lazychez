@@ -17,6 +17,7 @@ var (
 	TitleColor    = lipgloss.Color("#81cae4")
 	SelectedBg    = lipgloss.Color("#114a5f")
 	MutedColor    = lipgloss.Color("#5a7a86")
+	DirColor      = lipgloss.Color("#A2C5D2")
 	SuccessColor  = lipgloss.Color("#98e481")
 	ErrorColor    = lipgloss.Color("#e48281")
 

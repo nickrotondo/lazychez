@@ -57,6 +57,8 @@ func (m Model) View() string {
 		screen = m.renderOverlay(screen, m.renderConfirmForget())
 	case OverlayAddFile:
 		screen = m.renderOverlay(screen, m.renderAddFileOverlay())
+	case OverlayConfirmStageAll:
+		screen = m.renderOverlay(screen, m.renderConfirmStageAll())
 	}
 
 	return screen
@@ -449,6 +451,7 @@ func (m Model) helpContent() string {
     j/k         Move up/down
     g/G         Jump to top/bottom
     ctrl+d/u    Half-page down/up
+    enter       Expand/collapse directory
     H/L         Previous/next pane
     0/1/2/3     Jump to panel
     ←/→         Cycle between file list and git
@@ -562,6 +565,16 @@ func (m Model) renderAddFileOverlay() string {
 	content := m.addFile.View() + "\n" + hint
 	w := min(100, max(40, m.width*80/100))
 	return OverlayStyle.Width(w).Render(content)
+}
+
+func (m Model) renderConfirmStageAll() string {
+	content := fmt.Sprintf(
+		"%s\n\n%s\n\n%s",
+		PaneTitle.Render("Nothing Staged"),
+		"Stage all files and continue to commit?",
+		HelpKey.Render("y")+" yes  "+HelpKey.Render("n")+" no",
+	)
+	return OverlayStyle.Render(content)
 }
 
 func (m Model) renderConfirmGitDiscard() string {
