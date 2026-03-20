@@ -72,6 +72,10 @@ type Model struct {
 	// Diff cache: home-relative path → diff output (loaded once, refreshed on operations)
 	diffCache map[string]string
 
+	// catMode is true when the detail pane shows chezmoi cat output instead of diff.
+	// Auto-reverts to false when navigating to a different file.
+	catMode bool
+
 	version string
 
 	chezmoi chezmoi.Runner
@@ -134,7 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.managedFiles = msg.Files
 		m.rebuildFileList()
 		m.updateDimensions()
-		if m.focused == PaneFileList {
+		if m.focused == PaneFileList && !m.catMode {
 			return m, m.fetchDiffForSelected()
 		}
 		return m, nil
@@ -147,17 +151,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusData = msg.Entries
 		m.rebuildFileList()
 		m.updateDimensions()
-		if m.focused == PaneFileList {
+		if m.focused == PaneFileList && !m.catMode {
 			return m, m.fetchDiffForSelected()
 		}
 		return m, nil
 
 	case DiffMsg:
 		if msg.Err != nil {
-			m.diffView.SetContent(msg.Path, fmt.Sprintf("Error loading diff: %v", msg.Err))
+			if !m.catMode {
+				m.diffView.SetContent(msg.Path, fmt.Sprintf("Error loading diff: %v", msg.Err))
+			}
 		} else {
 			m.diffCache[msg.Path] = msg.Diff
-			m.diffView.SetContent(msg.Path, msg.Diff)
+			if !m.catMode {
+				m.diffView.SetContent(msg.Path, msg.Diff)
+			}
+		}
+		return m, nil
+
+	case CatMsg:
+		if msg.Err != nil {
+			m.diffView.SetContent(msg.Path, fmt.Sprintf("Error loading cat output: %v", msg.Err))
+		} else {
+			m.diffView.SetContent(msg.Path, msg.Content)
 		}
 		return m, nil
 
@@ -191,7 +207,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setStatus(fmt.Sprintf("Error adding %s: %v", msg.Path, msg.Err), true)
 			}
 		} else {
-			m.setStatus(fmt.Sprintf("Added %s", msg.Path), false)
+			m.setStatus(fmt.Sprintf("Re-added %s — undo in Git pane with D", msg.Path), false)
 		}
 		return m, tea.Batch(clearStatusAfter(), m.refreshAll())
 
@@ -491,7 +507,7 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.fileList.HalfPageDown()
 	case "ctrl+u":
 		m.fileList.HalfPageUp()
-	case " ":
+	case "s":
 		path := m.fileList.SelectedPath()
 		if path != "" {
 			return m, addFile(m.chezmoi, path)
@@ -525,15 +541,21 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = OverlayConfirmForget
 		}
 		return m, nil
-	case "D":
-		if sel := m.fileList.SelectedItem(); sel != nil && sel.HasDrift() {
-			switch sel.Drift {
-			case DriftSourceEdited:
-				return m, addFile(m.chezmoi, sel.Path)
-			case DriftDestEdited:
-				return m, applyFile(m.chezmoi, sel.Path)
-			}
+	case "t":
+		item := m.fileList.SelectedItem()
+		if item == nil {
+			return m, nil
 		}
+		if !item.IsTemplate() {
+			m.setStatus("Not a template", false)
+			return m, clearStatusAfter()
+		}
+		m.catMode = !m.catMode
+		m.syncFocus()
+		if m.catMode {
+			return m, fetchCat(m.chezmoi, item.Path)
+		}
+		return m, m.fetchDiffForSelected()
 	case "enter":
 		if m.fileList.SelectedIsDir() {
 			m.fileList.ToggleCollapse()
@@ -545,13 +567,14 @@ func (m Model) handleFileListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if newPath := m.fileList.SelectedPath(); newPath != prevPath && newPath != "" {
+		// Auto-revert to diff mode when navigating to a different file.
+		m.catMode = false
+		m.syncFocus()
 		if diff, ok := m.diffCache[newPath]; ok {
 			m.diffView.SetContent(newPath, diff)
 			return m, nil
 		}
-		sel := m.fileList.SelectedItem()
-		reverse := sel != nil && sel.Drift == DriftDestEdited
-		return m, fetchDiff(m.chezmoi, newPath, reverse)
+		return m, fetchDiff(m.chezmoi, newPath)
 	}
 
 	return m, nil
@@ -794,6 +817,16 @@ func (m *Model) syncFocus() {
 	m.fileList.SetFocused(m.focused == PaneFileList)
 	m.gitStatus.SetFocused(m.focused == PaneGitStatus)
 	m.diffView.SetFocused(m.focused == PaneInfo)
+
+	ctx := m.detailPaneContext()
+	switch {
+	case ctx == PaneGitStatus:
+		m.diffView.SetContext("git")
+	case ctx == PaneFileList && m.catMode:
+		m.diffView.SetContext("cat")
+	default:
+		m.diffView.SetContext("chezmoi")
+	}
 }
 
 func (m *Model) rebuildFileList() {
@@ -804,16 +837,18 @@ func (m *Model) rebuildFileList() {
 func (m *Model) fetchDiffForSelected() tea.Cmd {
 	path := m.fileList.SelectedPath()
 	if path == "" {
-		m.diffView.SetContent("", "")
+		if !m.catMode {
+			m.diffView.SetContent("", "")
+		}
 		return nil
 	}
 	if diff, ok := m.diffCache[path]; ok {
-		m.diffView.SetContent(path, diff)
+		if !m.catMode {
+			m.diffView.SetContent(path, diff)
+		}
 		return nil
 	}
-	sel := m.fileList.SelectedItem()
-	reverse := sel != nil && sel.Drift == DriftDestEdited
-	return fetchDiff(m.chezmoi, path, reverse)
+	return fetchDiff(m.chezmoi, path)
 }
 
 func (m *Model) fetchGitDiffForSelected() tea.Cmd {
@@ -828,6 +863,11 @@ func (m *Model) fetchGitDiffForSelected() tea.Cmd {
 func (m *Model) fetchDiffForFocusedPane() tea.Cmd {
 	switch m.focused {
 	case PaneFileList:
+		if m.catMode {
+			if item := m.fileList.SelectedItem(); item != nil {
+				return fetchCat(m.chezmoi, item.Path)
+			}
+		}
 		return m.fetchDiffForSelected()
 	case PaneGitStatus:
 		return m.fetchGitDiffForSelected()
@@ -838,6 +878,8 @@ func (m *Model) fetchDiffForFocusedPane() tea.Cmd {
 
 func (m *Model) refreshAll() tea.Cmd {
 	m.diffCache = make(map[string]string)
+	m.catMode = false
+	m.syncFocus()
 	return tea.Batch(
 		fetchManagedFiles(m.chezmoi),
 		fetchStatus(m.chezmoi),

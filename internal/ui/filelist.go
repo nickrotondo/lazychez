@@ -19,43 +19,11 @@ const (
 	FilterLocked
 )
 
-type DriftKind int
-
-const (
-	DriftNone         DriftKind = iota
-	DriftSourceEdited           // source changed (chezmoi edit) → suggest apply
-	DriftDestEdited             // destination changed directly → suggest add
-)
-
-// sortOrder returns the group priority for sorting: dest-edited first,
-// then source-edited, then synced.
-func (d DriftKind) sortOrder() int {
-	switch d {
-	case DriftDestEdited:
-		return 0
-	case DriftSourceEdited:
-		return 1
-	default:
-		return 2
-	}
-}
-
-// classifyDrift determines drift direction from chezmoi status columns.
-// First column (SourceState): was the dest modified since last apply?
-// If yes → dest edited. If no but second column shows diff → source edited.
-func classifyDrift(s chezmoi.StatusEntry) DriftKind {
-	if s.SourceState != ' ' {
-		return DriftDestEdited
-	}
-	return DriftSourceEdited
-}
-
 type FileItem struct {
 	Path          string
 	SourceRelPath string
-	SourceState   rune // 'M', 'A', 'D', ' '
-	DestState     rune
-	Drift         DriftKind
+	AddCol        rune // what `chezmoi add` would change: 'M', 'A', 'D', ' '
+	ApplyCol      rune // what `chezmoi apply` would change: 'M', 'A', 'D', ' '
 	IsHeading     bool
 	HeadingText   string
 
@@ -67,8 +35,17 @@ type FileItem struct {
 	DirCollapsed bool   // whether this dir is collapsed
 }
 
-func (f FileItem) HasDrift() bool {
-	return !f.IsHeading && (f.SourceState != ' ' || f.DestState != ' ')
+func (f FileItem) IsDirty() bool {
+	return !f.IsHeading && !f.IsDir && (f.AddCol != ' ' || f.ApplyCol != ' ')
+}
+
+func (f FileItem) IsTemplate() bool {
+	return strings.HasSuffix(f.SourceRelPath, ".tmpl")
+}
+
+// StatusCode returns the two-character chezmoi status code for display.
+func (f FileItem) StatusCode() string {
+	return string(f.AddCol) + string(f.ApplyCol)
 }
 
 type FileListModel struct {
@@ -112,31 +89,32 @@ func (m *FileListModel) SetFiles(files []FileItem) {
 }
 
 func (m *FileListModel) rebuildDisplayList() {
-	// Partition items by drift group so drifted files rise to the top with headings.
-	groups := [3][]FileItem{} // 0=dest-edited, 1=source-edited, 2=synced
+	// Partition into dirty (any non-space status) and clean files.
+	var dirty, clean []FileItem
 	for _, f := range m.allItems {
-		groups[f.Drift.sortOrder()] = append(groups[f.Drift.sortOrder()], f)
+		if f.IsDirty() {
+			dirty = append(dirty, f)
+		} else {
+			clean = append(clean, f)
+		}
 	}
-
-	hasDrift := len(groups[0]) > 0 || len(groups[1]) > 0
-
-	// Map sort-order index back to DriftKind for heading text.
-	orderToDrift := [3]DriftKind{DriftDestEdited, DriftSourceEdited, DriftNone}
 
 	var result []FileItem
-	for gi, group := range groups {
-		if len(group) == 0 {
-			continue
-		}
-		if hasDrift {
-			result = append(result, FileItem{
-				IsHeading:   true,
-				HeadingText: headingText(orderToDrift[gi]),
-			})
-		}
-		tree := buildTree(group)
+
+	if len(dirty) > 0 {
+		tree := buildTree(dirty)
 		result = append(result, flattenTree(tree, m.collapsed)...)
 	}
+
+	if len(dirty) > 0 && len(clean) > 0 {
+		result = append(result, FileItem{IsHeading: true})
+	}
+
+	if len(clean) > 0 {
+		tree := buildTree(clean)
+		result = append(result, flattenTree(tree, m.collapsed)...)
+	}
+
 	m.files = result
 }
 
@@ -221,10 +199,10 @@ func (m FileListModel) CursorPosition() (current, total int) {
 	return current, pos
 }
 
-func (m FileListModel) DriftCount() int {
+func (m FileListModel) DirtyCount() int {
 	count := 0
 	for _, f := range m.files {
-		if !f.IsHeading && !f.IsDir && f.HasDrift() {
+		if f.IsDirty() {
 			count++
 		}
 	}
@@ -355,7 +333,7 @@ func (m FileListModel) View() string {
 		f := m.files[i]
 
 		if f.IsHeading {
-			lines = append(lines, renderHeadingLine(f.HeadingText, m.width))
+			lines = append(lines, renderDividerLine(m.width))
 			continue
 		}
 
@@ -395,58 +373,89 @@ func (m FileListModel) renderDirLine(f FileItem, indent string, selected bool) s
 }
 
 func (m FileListModel) renderFileLine(f FileItem, indent string, selected bool) string {
-	// Determine indicator glyph and its color
-	var glyph string
-	var glyphColor lipgloss.Color
-	switch {
-	case f.Drift == DriftSourceEdited:
-		glyph = "●"
-		glyphColor = ModifiedColor
-	case f.Drift == DriftDestEdited:
-		glyph = "◆"
-		glyphColor = TitleColor
-	case f.SourceState == 'A' || f.DestState == 'A':
-		glyph = "+ "
-		glyphColor = AddedColor
-	case f.SourceState == 'D' || f.DestState == 'D':
-		glyph = "− "
-		glyphColor = DeletedColor
-	}
-
 	// Use TreeName (filename segment) for tree view, fall back to full Path
 	displayName := f.TreeName
 	if displayName == "" {
 		displayName = f.Path
 	}
 
-	// Build the plain-text content for width calculation
-	plainText := indent + glyph + displayName
-	plainWidth := lipgloss.Width(plainText)
+	isTemplate := f.IsTemplate()
+	tmplSuffix := ""
+	tmplWidth := 0
+	if isTemplate {
+		tmplSuffix = renderTemplateSuffix(selected)
+		tmplWidth = 5 // len(".tmpl")
+	}
+
+	isDirty := f.AddCol != ' ' || f.ApplyCol != ' '
+
+	if isDirty {
+		// Render two-character status code with per-character coloring
+		addStr := renderStatusChar(f.AddCol, selected)
+		applyStr := renderStatusChar(f.ApplyCol, selected)
+		code := addStr + applyStr
+
+		// Plain text width: indent + 2 status chars + space + name + optional .tmpl
+		plainWidth := lipgloss.Width(indent) + 3 + lipgloss.Width(displayName) + tmplWidth
+		padding := ""
+		if pad := m.width - plainWidth; pad > 0 {
+			padding = strings.Repeat(" ", pad)
+		}
+
+		if selected {
+			return SelectedItem.Render(indent) + code + SelectedItem.Render(" "+displayName) + tmplSuffix + SelectedItem.Render(padding)
+		}
+		return indent + code + " " + displayName + tmplSuffix + padding
+	}
+
+	// Clean file — no status code prefix
+	plainWidth := lipgloss.Width(indent) + lipgloss.Width(displayName) + tmplWidth
 	padding := ""
 	if pad := m.width - plainWidth; pad > 0 {
 		padding = strings.Repeat(" ", pad)
 	}
 
 	if selected {
-		if glyph != "" {
-			return SelectedItem.Render(indent) +
-				lipgloss.NewStyle().Foreground(glyphColor).Background(SelectedBg).Bold(true).Render(glyph) +
-				SelectedItem.Render(displayName+padding)
-		}
-		return SelectedItem.Render(indent + displayName + padding)
+		return SelectedItem.Render(indent+displayName) + tmplSuffix + SelectedItem.Render(padding)
 	}
+	return indent + displayName + tmplSuffix + padding
+}
 
-	// Normal (unselected) rendering
-	if glyph != "" {
-		return indent + lipgloss.NewStyle().Foreground(glyphColor).Bold(true).Render(glyph) + displayName + padding
+// renderTemplateSuffix renders the ".tmpl" indicator in teal.
+func renderTemplateSuffix(selected bool) string {
+	s := lipgloss.NewStyle().Foreground(TemplateColor)
+	if selected {
+		s = s.Background(SelectedBg)
 	}
-	return indent + displayName + padding
+	return s.Render(".tmpl")
+}
+
+// renderStatusChar colors a single status character based on its value.
+func renderStatusChar(ch rune, selected bool) string {
+	var color lipgloss.Color
+	switch ch {
+	case 'M':
+		color = ModifiedColor
+	case 'A':
+		color = AddedColor
+	case 'D':
+		color = DeletedColor
+	default:
+		if selected {
+			return SelectedItem.Render(" ")
+		}
+		return " "
+	}
+	s := lipgloss.NewStyle().Foreground(color).Bold(true)
+	if selected {
+		s = s.Background(SelectedBg)
+	}
+	return s.Render(string(ch))
 }
 
 // MergeFilesWithStatus builds the merged and sorted file list.
-// Drift direction is determined from chezmoi status columns:
-//   - First column != ' ': dest was modified since last apply → DriftDestEdited
-//   - First column == ' ': dest unchanged, source has changes → DriftSourceEdited
+// Dirty files (any non-space status) sort to top by status code then alphabetically.
+// Clean files sort alphabetically below.
 func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.StatusEntry) []FileItem {
 	statusMap := make(map[string]chezmoi.StatusEntry, len(status))
 	for _, s := range status {
@@ -455,11 +464,10 @@ func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.Status
 
 	items := make([]FileItem, 0, len(managed))
 	for _, f := range managed {
-		item := FileItem{Path: f.Path, SourceRelPath: f.SourceRelPath, SourceState: ' ', DestState: ' '}
+		item := FileItem{Path: f.Path, SourceRelPath: f.SourceRelPath, AddCol: ' ', ApplyCol: ' '}
 		if s, ok := statusMap[f.Path]; ok {
-			item.SourceState = s.SourceState
-			item.DestState = s.DestState
-			item.Drift = classifyDrift(s)
+			item.AddCol = s.AddCol
+			item.ApplyCol = s.ApplyCol
 		}
 		items = append(items, item)
 	}
@@ -472,65 +480,31 @@ func MergeFilesWithStatus(managed []chezmoi.ManagedFile, status []chezmoi.Status
 	for _, s := range status {
 		if !managedSet[s.Path] {
 			items = append(items, FileItem{
-				Path:        s.Path,
-				SourceState: s.SourceState,
-				DestState:   s.DestState,
-				Drift:       classifyDrift(s),
+				Path:     s.Path,
+				AddCol:   s.AddCol,
+				ApplyCol: s.ApplyCol,
 			})
 		}
 	}
 
-	// Sort: dest-edited first, then source-edited, then synced; alphabetical within each group
+	// Sort: dirty first by status code then alphabetically; clean files alphabetically
 	sort.SliceStable(items, func(i, j int) bool {
-		oi, oj := items[i].Drift.sortOrder(), items[j].Drift.sortOrder()
-		if oi != oj {
-			return oi < oj
+		di := items[i].AddCol != ' ' || items[i].ApplyCol != ' '
+		dj := items[j].AddCol != ' ' || items[j].ApplyCol != ' '
+		if di != dj {
+			return di // dirty before clean
+		}
+		if di && dj {
+			ci := string(items[i].AddCol) + string(items[i].ApplyCol)
+			cj := string(items[j].AddCol) + string(items[j].ApplyCol)
+			if ci != cj {
+				return ci < cj
+			}
 		}
 		return items[i].Path < items[j].Path
 	})
 
 	return items
-}
-
-// insertHeadings adds section heading entries at group boundaries.
-// Only inserts headings when at least one file has drift.
-func insertHeadings(files []FileItem) []FileItem {
-	hasDrift := false
-	for _, f := range files {
-		if f.HasDrift() {
-			hasDrift = true
-			break
-		}
-	}
-	if !hasDrift {
-		return files
-	}
-
-	result := make([]FileItem, 0, len(files)+3)
-	lastOrder := -1
-	for _, f := range files {
-		order := f.Drift.sortOrder()
-		if order != lastOrder {
-			result = append(result, FileItem{
-				IsHeading:   true,
-				HeadingText: headingText(f.Drift),
-			})
-			lastOrder = order
-		}
-		result = append(result, f)
-	}
-	return result
-}
-
-func headingText(d DriftKind) string {
-	switch d {
-	case DriftDestEdited:
-		return "dest edited · space to add"
-	case DriftSourceEdited:
-		return "source edited · a to apply"
-	default:
-		return "synced"
-	}
 }
 
 // --- Filter methods ---
@@ -606,8 +580,8 @@ func (m *FileListModel) applyFilter() {
 		filtered[i] = m.allItems[match.Index]
 	}
 
-	// Filter shows flat list with full paths (no tree)
-	m.files = insertHeadings(filtered)
+	// Filter shows flat list with full paths (no tree), with divider between dirty/clean
+	m.files = insertDivider(filtered)
 	m.cursor = 0
 	m.snapCursorToFile()
 	m.offset = 0
@@ -621,10 +595,37 @@ func (m *FileListModel) applyFilter() {
 	}
 }
 
-func renderHeadingLine(text string, width int) string {
-	prefix := "── "
-	suffix := " "
-	inner := prefix + text + suffix
-	fill := max(0, width-lipgloss.Width(inner))
-	return lipgloss.NewStyle().Foreground(MutedColor).Render(inner + strings.Repeat("─", fill))
+// insertDivider adds a divider between dirty and clean files in a flat list.
+func insertDivider(files []FileItem) []FileItem {
+	hasDirty := false
+	hasClean := false
+	for _, f := range files {
+		if f.IsDirty() {
+			hasDirty = true
+		} else {
+			hasClean = true
+		}
+		if hasDirty && hasClean {
+			break
+		}
+	}
+	if !hasDirty || !hasClean {
+		return files
+	}
+
+	result := make([]FileItem, 0, len(files)+1)
+	inDirty := true
+	for _, f := range files {
+		if inDirty && !f.IsDirty() {
+			result = append(result, FileItem{IsHeading: true})
+			inDirty = false
+		}
+		result = append(result, f)
+	}
+	return result
+}
+
+// renderDividerLine renders a simple horizontal divider line.
+func renderDividerLine(width int) string {
+	return lipgloss.NewStyle().Foreground(MutedColor).Render(strings.Repeat("─", width))
 }

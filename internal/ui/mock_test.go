@@ -17,6 +17,8 @@ type mockChezmoiRunner struct {
 	statusErr       error
 	diffOutput      map[string]string
 	diffErr         map[string]error
+	catOutput       map[string]string
+	catErr          map[string]error
 	addErr          map[string]error
 	addNewErr       map[string]error
 	applyErr        map[string]error
@@ -29,12 +31,15 @@ type mockChezmoiRunner struct {
 	applyCalls     []string
 	applyAllCalled bool
 	forgetCalls    []string
+	catCalls       []string
 }
 
 func newMockChezmoi() *mockChezmoiRunner {
 	return &mockChezmoiRunner{
 		diffOutput: make(map[string]string),
 		diffErr:    make(map[string]error),
+		catOutput:  make(map[string]string),
+		catErr:     make(map[string]error),
 		addErr:     make(map[string]error),
 		addNewErr:  make(map[string]error),
 		applyErr:   make(map[string]error),
@@ -57,6 +62,11 @@ func (m *mockChezmoiRunner) Status(_ context.Context) ([]chezmoi.StatusEntry, er
 
 func (m *mockChezmoiRunner) Diff(_ context.Context, path string) (string, error) {
 	return m.diffOutput[path], m.diffErr[path]
+}
+
+func (m *mockChezmoiRunner) Cat(_ context.Context, path string) (string, error) {
+	m.catCalls = append(m.catCalls, path)
+	return m.catOutput[path], m.catErr[path]
 }
 
 func (m *mockChezmoiRunner) Add(_ context.Context, path string) error {

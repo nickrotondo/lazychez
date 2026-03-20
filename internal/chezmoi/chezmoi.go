@@ -16,9 +16,9 @@ type ManagedFile struct {
 }
 
 type StatusEntry struct {
-	SourceState rune   // 'M', 'A', 'D', ' '
-	DestState   rune   // 'M', 'A', 'D', ' '
-	Path        string // relative to home
+	AddCol   rune   // what `chezmoi add` would change in source: 'M', 'A', 'D', ' '
+	ApplyCol rune   // what `chezmoi apply` would change in dest: 'M', 'A', 'D', ' '
+	Path     string // relative to home
 }
 
 type Runner interface {
@@ -26,6 +26,7 @@ type Runner interface {
 	Unmanaged(ctx context.Context) ([]string, error)
 	Status(ctx context.Context) ([]StatusEntry, error)
 	Diff(ctx context.Context, path string) (string, error)
+	Cat(ctx context.Context, path string) (string, error)
 	Add(ctx context.Context, path string) error
 	AddNew(ctx context.Context, path string) error
 	Apply(ctx context.Context, path string) error
@@ -108,12 +109,21 @@ func (c *CLI) Status(ctx context.Context) ([]StatusEntry, error) {
 			continue
 		}
 		entries = append(entries, StatusEntry{
-			SourceState: rune(line[0]),
-			DestState:   rune(line[1]),
-			Path:        strings.TrimSpace(line[2:]),
+			AddCol:   rune(line[0]),
+			ApplyCol: rune(line[1]),
+			Path:     strings.TrimSpace(line[2:]),
 		})
 	}
 	return entries, nil
+}
+
+func (c *CLI) Cat(ctx context.Context, path string) (string, error) {
+	fullPath := filepath.Join(c.homeDir, path)
+	out, err := c.runStdout(ctx, "cat", fullPath)
+	if err != nil {
+		return "", fmt.Errorf("chezmoi cat %s: %w", path, err)
+	}
+	return out, nil
 }
 
 func (c *CLI) Diff(ctx context.Context, path string) (string, error) {

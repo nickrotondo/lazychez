@@ -16,20 +16,32 @@ func (m Model) View() string {
 		return "Loading..."
 	}
 
-	fileTitle := "[1] Managed Files"
-	if dc := m.fileList.DriftCount(); dc > 0 {
-		fileTitle = fmt.Sprintf("[1] Managed Files · %d drifted", dc)
+	fileTitle := "[1] Chezmoi Status"
+	if dc := m.fileList.DirtyCount(); dc > 0 {
+		fileTitle = fmt.Sprintf("[1] Chezmoi Status · %d changed", dc)
 	}
-	gitTitle := "[2] Source Git"
-	statusTitle := "[3] Status"
+	gitTitle := "[2] Git"
+	statusTitle := "[3] Remote"
 
 	var diffTitle string
 	if m.showInfoView() {
-		diffTitle = "[0] Info"
-	} else if p := m.diffView.Path(); p != "" {
-		diffTitle = fmt.Sprintf("[0] Diff — %s", p)
+		diffTitle = "[0] lazychez"
 	} else {
-		diffTitle = "[0] Diff"
+		ctx := m.detailPaneContext()
+		var prefix string
+		switch {
+		case ctx == PaneGitStatus:
+			prefix = "git diff"
+		case ctx == PaneFileList && m.catMode:
+			prefix = "chezmoi cat"
+		default:
+			prefix = "chezmoi diff"
+		}
+		if p := m.diffView.Path(); p != "" {
+			diffTitle = fmt.Sprintf("[0] %s — %s", prefix, p)
+		} else {
+			diffTitle = fmt.Sprintf("[0] %s", prefix)
+		}
 	}
 
 	var main string
@@ -376,26 +388,10 @@ func (m Model) renderFooter() string {
 	var paneHints []string
 	switch m.focused {
 	case PaneFileList:
-		sel := m.fileList.SelectedItem()
-		switch {
-		case sel != nil && sel.Drift == DriftDestEdited:
-			paneHints = []string{
-				hint("space", "add (dest → source)"), hint("a", "apply"),
-				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
-				hint("/", "filter"),
-			}
-		case sel != nil && sel.Drift == DriftSourceEdited:
-			paneHints = []string{
-				hint("a", "apply (source → dest)"), hint("space", "add"),
-				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
-				hint("/", "filter"),
-			}
-		default:
-			paneHints = []string{
-				hint("space", "add"), hint("a", "apply"),
-				hint("D", "discard"), hint("+", "new"), hint("e", "edit"),
-				hint("/", "filter"),
-			}
+		paneHints = []string{
+			hint("s", "re-add (dest → source)"), hint("a", "apply (source → dest)"),
+			hint("t", "toggle template"), hint("+", "new"), hint("e", "edit"),
+			hint("/", "filter"),
 		}
 	case PaneGitStatus:
 		paneHints = []string{
@@ -459,11 +455,11 @@ func (m Model) helpContent() string {
     shift+tab   Previous panel
     esc         Back from diff panel
 ` + "\n" +
-		heading.Render("  File Actions") + `
-    space       Add file (dest → source)
+		heading.Render("  Chezmoi Actions") + `
+    s           Re-add file (dest → source)
     a           Apply file (source → dest)
     A           Apply all files
-    D           Discard drift (revert change)
+    t           Toggle template preview (chezmoi cat)
     e           Edit source (chezmoi edit)
     +           Add unmanaged file
     x           Forget file (unmanage)

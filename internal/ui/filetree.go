@@ -53,7 +53,7 @@ func buildTree(items []FileItem) *treeNode {
 }
 
 // sortTree recursively sorts children: directories first (alphabetical),
-// then files (drifted before synced, alphabetical within same drift level).
+// then files (alphabetical).
 func sortTree(node *treeNode) {
 	for _, child := range node.children {
 		if child.isDir() {
@@ -83,9 +83,8 @@ func flattenNode(node *treeNode, depth int, collapsed map[string]bool, items *[]
 		*items = append(*items, FileItem{
 			Path:          node.file.Path,
 			SourceRelPath: node.file.SourceRelPath,
-			SourceState:   node.file.SourceState,
-			DestState:     node.file.DestState,
-			Drift:         node.file.Drift,
+			AddCol:        node.file.AddCol,
+			ApplyCol:      node.file.ApplyCol,
 			TreeDepth:     depth,
 			TreeName:      node.name,
 		})

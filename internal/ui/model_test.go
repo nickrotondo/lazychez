@@ -54,14 +54,14 @@ func TestUpdate_StatusMsg(t *testing.T) {
 		}
 		msg := StatusMsg{
 			Entries: []chezmoi.StatusEntry{
-				{SourceState: ' ', DestState: 'M', Path: ".zshrc"},
+				{AddCol: ' ', ApplyCol: 'M', Path: ".zshrc"},
 			},
 		}
 		result, _ := m.Update(msg)
 		m = result.(Model)
-		// Should have rebuilt with drift
-		if m.fileList.DriftCount() != 1 {
-			t.Errorf("DriftCount() = %d, want 1", m.fileList.DriftCount())
+		// Should have rebuilt with dirty file
+		if m.fileList.DirtyCount() != 1 {
+			t.Errorf("DirtyCount() = %d, want 1", m.fileList.DirtyCount())
 		}
 	})
 
@@ -127,13 +127,16 @@ func TestUpdate_GitStatusMsg(t *testing.T) {
 }
 
 func TestUpdate_AddResultMsg(t *testing.T) {
-	t.Run("success sets status", func(t *testing.T) {
+	t.Run("success sets status with undo hint", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		msg := AddResultMsg{Path: ".zshrc"}
 		result, cmd := m.Update(msg)
 		m = result.(Model)
-		if !strings.Contains(m.statusMsg, "Added") {
-			t.Errorf("statusMsg = %q, want to contain 'Added'", m.statusMsg)
+		if !strings.Contains(m.statusMsg, "Re-added .zshrc") {
+			t.Errorf("statusMsg = %q, want to contain 'Re-added .zshrc'", m.statusMsg)
+		}
+		if !strings.Contains(m.statusMsg, "undo in Git pane with D") {
+			t.Errorf("statusMsg = %q, want to contain undo hint", m.statusMsg)
 		}
 		if m.statusError {
 			t.Error("statusError should be false on success")
@@ -175,8 +178,8 @@ func TestUpdate_ApplyResultMsg(t *testing.T) {
 		m, _, _ := newTestModel()
 		result, _ := m.Update(ApplyResultMsg{Path: ".zshrc"})
 		m = result.(Model)
-		if !strings.Contains(m.statusMsg, "Applied") {
-			t.Errorf("statusMsg = %q, want to contain 'Applied'", m.statusMsg)
+		if m.statusMsg != "Applied .zshrc" {
+			t.Errorf("statusMsg = %q, want 'Applied .zshrc'", m.statusMsg)
 		}
 	})
 
@@ -1097,15 +1100,15 @@ func TestUpdate_BatchAddResultMsg(t *testing.T) {
 func TestHandleFileListKey(t *testing.T) {
 	setupWithFiles := func() (Model, *mockChezmoiRunner) {
 		m, cm, _ := newTestModel()
-		// Populate with files that have drift
+		// Populate with files that have changes
 		m.managedFiles = []chezmoi.ManagedFile{
 			{Path: ".bashrc", SourceRelPath: "dot_bashrc"},
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
 			{Path: ".vimrc", SourceRelPath: "dot_vimrc"},
 		}
 		m.statusData = []chezmoi.StatusEntry{
-			{SourceState: ' ', DestState: 'M', Path: ".bashrc"},
-			{SourceState: 'M', DestState: ' ', Path: ".zshrc"},
+			{AddCol: ' ', ApplyCol: 'M', Path: ".bashrc"},
+			{AddCol: 'M', ApplyCol: ' ', Path: ".zshrc"},
 		}
 		m.gitStatus.entries = []GitStatusEntry{
 			{XY: " M", Path: "dot_zshrc"},
@@ -1125,13 +1128,13 @@ func TestHandleFileListKey(t *testing.T) {
 		}
 	})
 
-	t.Run("space triggers add on selected file", func(t *testing.T) {
+	t.Run("s triggers re-add on selected file", func(t *testing.T) {
 		m, _ := setupWithFiles()
 		path := m.fileList.SelectedPath()
 		if path == "" {
 			t.Fatal("no file selected")
 		}
-		_, cmd := sendKey(m, " ")
+		_, cmd := sendKey(m, "s")
 		if cmd == nil {
 			t.Fatal("cmd should not be nil")
 		}
@@ -1140,6 +1143,14 @@ func TestHandleFileListKey(t *testing.T) {
 			t.Errorf("cmd() returned %T, want AddResultMsg", msg)
 		} else if result.Path != path {
 			t.Errorf("result.Path = %q, want %q", result.Path, path)
+		}
+	})
+
+	t.Run("space is no-op in chezmoi pane", func(t *testing.T) {
+		m, _ := setupWithFiles()
+		_, cmd := sendKey(m, " ")
+		if cmd != nil {
+			t.Error("cmd should be nil (space is no-op in chezmoi pane)")
 		}
 	})
 
@@ -1166,41 +1177,11 @@ func TestHandleFileListKey(t *testing.T) {
 		}
 	})
 
-	t.Run("D on dest edited triggers apply", func(t *testing.T) {
+	t.Run("D is no-op in chezmoi pane", func(t *testing.T) {
 		m, _ := setupWithFiles()
-		// Navigate to a DriftDestEdited file
-		for m.fileList.SelectedItem() == nil || m.fileList.SelectedItem().Drift != DriftDestEdited {
-			m.fileList.MoveDown()
-			if m.fileList.SelectedPath() == "" {
-				t.Skip("could not find DriftDestEdited file")
-			}
-		}
 		_, cmd := sendKey(m, "D")
-		if cmd == nil {
-			t.Fatal("cmd should not be nil for D on dest-edited")
-		}
-		msg := cmd()
-		if _, ok := msg.(ApplyResultMsg); !ok {
-			t.Errorf("cmd() returned %T, want ApplyResultMsg", msg)
-		}
-	})
-
-	t.Run("D on source edited triggers add", func(t *testing.T) {
-		m, _ := setupWithFiles()
-		// Navigate to a DriftSourceEdited file
-		for m.fileList.SelectedItem() == nil || m.fileList.SelectedItem().Drift != DriftSourceEdited {
-			m.fileList.MoveDown()
-			if m.fileList.SelectedPath() == "" {
-				t.Skip("could not find DriftSourceEdited file")
-			}
-		}
-		_, cmd := sendKey(m, "D")
-		if cmd == nil {
-			t.Fatal("cmd should not be nil for D on source-edited")
-		}
-		msg := cmd()
-		if _, ok := msg.(AddResultMsg); !ok {
-			t.Errorf("cmd() returned %T, want AddResultMsg", msg)
+		if cmd != nil {
+			t.Error("cmd should be nil (D is no-op in chezmoi pane)")
 		}
 	})
 
@@ -1242,9 +1223,9 @@ func TestHandleFileListKey(t *testing.T) {
 		}
 	})
 
-	t.Run("space with no files is no-op", func(t *testing.T) {
+	t.Run("s with no files is no-op", func(t *testing.T) {
 		m, _, _ := newTestModel()
-		_, cmd := sendKey(m, " ")
+		_, cmd := sendKey(m, "s")
 		if cmd != nil {
 			t.Error("cmd should be nil when no file selected")
 		}
@@ -1396,7 +1377,7 @@ func TestViewDoesNotPanic(t *testing.T) {
 			{Path: ".zshrc", SourceRelPath: "dot_zshrc"},
 		}
 		m.statusData = []chezmoi.StatusEntry{
-			{SourceState: ' ', DestState: 'M', Path: ".zshrc"},
+			{AddCol: ' ', ApplyCol: 'M', Path: ".zshrc"},
 		}
 		m.rebuildFileList()
 		m.diffView.SetDimensions(80, 20)
@@ -1600,18 +1581,18 @@ func TestDetailPaneContext(t *testing.T) {
 }
 
 func TestDetailPaneTitle(t *testing.T) {
-	t.Run("title is Info when status pane was last focused", func(t *testing.T) {
+	t.Run("title is lazychez when status pane was last focused", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m.focused = PaneStatus
 		m.syncFocus()
 		m.updateDimensions()
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Info") {
-			t.Errorf("View() should contain '[0]─Info' when Status is focused, got relevant portion missing")
+		if !strings.Contains(view, "[0]─lazychez") {
+			t.Errorf("View() should contain '[0]─lazychez' when Status is focused, got relevant portion missing")
 		}
 	})
 
-	t.Run("title is Diff with path when file list is focused and file selected", func(t *testing.T) {
+	t.Run("title is chezmoi diff with path when file list is focused and file selected", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m.focused = PaneFileList
 		m.syncFocus()
@@ -1619,26 +1600,26 @@ func TestDetailPaneTitle(t *testing.T) {
 		m.diffView.SetContent(".zshrc", "+line")
 		m.updateDimensions()
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Diff — .zshrc") {
-			t.Errorf("View() should contain '[0]─Diff — .zshrc'")
+		if !strings.Contains(view, "[0]─chezmoi diff — .zshrc") {
+			t.Errorf("View() should contain '[0]─chezmoi diff — .zshrc'")
 		}
 	})
 
-	t.Run("title is Diff when file list is focused with no file selected", func(t *testing.T) {
+	t.Run("title is chezmoi diff when file list is focused with no file selected", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m.focused = PaneFileList
 		m.syncFocus()
 		m.updateDimensions()
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Diff") {
-			t.Errorf("View() should contain '[0]─Diff'")
+		if !strings.Contains(view, "[0]─chezmoi diff") {
+			t.Errorf("View() should contain '[0]─chezmoi diff'")
 		}
-		if strings.Contains(view, "[0]─Info") {
-			t.Error("View() should not contain '[0]─Info' when FileList is focused")
+		if strings.Contains(view, "[0]─lazychez") {
+			t.Error("View() should not contain '[0]─lazychez' when FileList is focused")
 		}
 	})
 
-	t.Run("pane 0 focused preserves info context from status", func(t *testing.T) {
+	t.Run("pane 0 focused preserves lazychez context from status", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m.focused = PaneStatus
 		m.syncFocus()
@@ -1646,12 +1627,12 @@ func TestDetailPaneTitle(t *testing.T) {
 		// Now press 0 to focus pane 0
 		m, _ = sendKey(m, "0")
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Info") {
-			t.Errorf("View() should preserve '[0]─Info' context after pressing 0 from Status")
+		if !strings.Contains(view, "[0]─lazychez") {
+			t.Errorf("View() should preserve '[0]─lazychez' context after pressing 0 from Status")
 		}
 	})
 
-	t.Run("pane 0 focused preserves diff context from file list", func(t *testing.T) {
+	t.Run("pane 0 focused preserves chezmoi diff context from file list", func(t *testing.T) {
 		m, _, _ := newTestModel()
 		m.focused = PaneFileList
 		m.syncFocus()
@@ -1661,8 +1642,8 @@ func TestDetailPaneTitle(t *testing.T) {
 		// Now press 0 to focus pane 0
 		m, _ = sendKey(m, "0")
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Diff — .vimrc") {
-			t.Errorf("View() should preserve '[0]─Diff — .vimrc' context after pressing 0 from FileList")
+		if !strings.Contains(view, "[0]─chezmoi diff — .vimrc") {
+			t.Errorf("View() should preserve '[0]─chezmoi diff — .vimrc' context after pressing 0 from FileList")
 		}
 	})
 
@@ -1672,17 +1653,17 @@ func TestDetailPaneTitle(t *testing.T) {
 		m.syncFocus()
 		m.updateDimensions()
 		view := stripAnsi(m.View())
-		if !strings.Contains(view, "[0]─Info") {
-			t.Fatal("expected [0]─Info initially")
+		if !strings.Contains(view, "[0]─lazychez") {
+			t.Fatal("expected [0]─lazychez initially")
 		}
 		// Tab to file list
 		m, _ = sendKey(m, "tab")
 		view = stripAnsi(m.View())
-		if strings.Contains(view, "[0]─Info") {
-			t.Error("View() should switch from Info to Diff when focus moves to FileList")
+		if strings.Contains(view, "[0]─lazychez") {
+			t.Error("View() should switch from lazychez to chezmoi diff when focus moves to FileList")
 		}
-		if !strings.Contains(view, "[0]─Diff") {
-			t.Error("View() should contain '[0]─Diff' after switching to FileList")
+		if !strings.Contains(view, "[0]─chezmoi diff") {
+			t.Error("View() should contain '[0]─chezmoi diff' after switching to FileList")
 		}
 	})
 }
@@ -1734,4 +1715,177 @@ func TestInfoViewContent(t *testing.T) {
 		// Should not panic
 		_ = m.View()
 	})
+}
+
+// --- Template support (Phase 4) ---
+
+func setupTemplateModel(t *testing.T) (Model, *mockChezmoiRunner) {
+	t.Helper()
+	m, cm, _ := newTestModel()
+	// .aliases sorts before .vimrc, so cursor starts on the template file.
+	m.managedFiles = []chezmoi.ManagedFile{
+		{Path: ".aliases", SourceRelPath: "dot_aliases.tmpl"},
+		{Path: ".vimrc", SourceRelPath: "dot_vimrc"},
+	}
+	cm.catOutput[".aliases"] = "alias ll='ls -la'\n"
+	m.rebuildFileList()
+	m.fileList.GoToTop() // cursor at position 0 = .aliases (template)
+	return m, cm
+}
+
+func TestTemplateDetection(t *testing.T) {
+	t.Run("IsTemplate true for .tmpl source path", func(t *testing.T) {
+		item := FileItem{Path: ".zshrc", SourceRelPath: "dot_zshrc.tmpl"}
+		if !item.IsTemplate() {
+			t.Error("IsTemplate() = false, want true")
+		}
+	})
+
+	t.Run("IsTemplate false for non-template source path", func(t *testing.T) {
+		item := FileItem{Path: ".vimrc", SourceRelPath: "dot_vimrc"}
+		if item.IsTemplate() {
+			t.Error("IsTemplate() = true, want false")
+		}
+	})
+
+	t.Run("IsTemplate false for empty SourceRelPath", func(t *testing.T) {
+		item := FileItem{Path: ".bashrc"}
+		if item.IsTemplate() {
+			t.Error("IsTemplate() = true, want false")
+		}
+	})
+}
+
+func TestCatMsgHandling(t *testing.T) {
+	t.Run("success sets diffView content", func(t *testing.T) {
+		m, _ := setupTemplateModel(t)
+		m.catMode = true
+		m.syncFocus()
+		msg := CatMsg{Path: ".aliases", Content: "alias ll='ls -la'\n"}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		if m.diffView.path != ".aliases" {
+			t.Errorf("diffView.path = %q, want .aliases", m.diffView.path)
+		}
+		if m.diffView.rawDiff != msg.Content {
+			t.Errorf("diffView.rawDiff = %q, want %q", m.diffView.rawDiff, msg.Content)
+		}
+	})
+
+	t.Run("error shows in diff view", func(t *testing.T) {
+		m, _ := setupTemplateModel(t)
+		m.catMode = true
+		msg := CatMsg{Path: ".aliases", Err: fmt.Errorf("cat failed")}
+		result, _ := m.Update(msg)
+		m = result.(Model)
+		if m.diffView.path != ".aliases" {
+			t.Errorf("diffView.path = %q, want .aliases", m.diffView.path)
+		}
+	})
+}
+
+func TestDiffMsgSkippedInCatMode(t *testing.T) {
+	m, _ := setupTemplateModel(t)
+	// Enter cat mode by setting content
+	m.catMode = true
+	m.syncFocus()
+	m.diffView.SetContent(".aliases", "alias ll='ls -la'\n")
+
+	// A diff message arrives (background refresh) — should not overwrite cat content
+	result, _ := m.Update(DiffMsg{Path: ".aliases", Diff: "+new diff line\n"})
+	m = result.(Model)
+	if m.diffView.rawDiff != "alias ll='ls -la'\n" {
+		t.Errorf("diffView.rawDiff = %q, want cat content to be preserved", m.diffView.rawDiff)
+	}
+	// Diff is still cached even in cat mode
+	if m.diffCache[".aliases"] != "+new diff line\n" {
+		t.Errorf("diffCache[.aliases] = %q, want diff cached", m.diffCache[".aliases"])
+	}
+}
+
+func TestTKeyToggleCatMode(t *testing.T) {
+	t.Run("t on template file toggles catMode on and issues fetchCat", func(t *testing.T) {
+		m, cm := setupTemplateModel(t)
+		cm.catOutput[".aliases"] = "alias ll='ls -la'\n"
+
+		result, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+		m = result.(Model)
+
+		if !m.catMode {
+			t.Error("catMode should be true after pressing t on template")
+		}
+		if cmd == nil {
+			t.Error("cmd should not be nil — expected fetchCat command")
+		}
+		// Simulate the CatMsg arriving
+		result, _ = m.Update(CatMsg{Path: ".aliases", Content: "alias ll='ls -la'\n"})
+		m = result.(Model)
+		if m.diffView.rawDiff != "alias ll='ls -la'\n" {
+			t.Errorf("diffView content = %q, want cat output", m.diffView.rawDiff)
+		}
+	})
+
+	t.Run("t toggles catMode off and fetches diff", func(t *testing.T) {
+		m, _ := setupTemplateModel(t)
+		m.catMode = true
+		m.syncFocus()
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+		m = result.(Model)
+
+		if m.catMode {
+			t.Error("catMode should be false after second t press")
+		}
+	})
+
+	t.Run("t on non-template file shows status message and does not toggle", func(t *testing.T) {
+		m, _ := setupTemplateModel(t)
+		// Navigate down to .vimrc (non-template)
+		m.fileList.MoveDown()
+
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+		m = result.(Model)
+
+		if m.catMode {
+			t.Error("catMode should remain false for non-template file")
+		}
+		if !strings.Contains(m.statusMsg, "Not a template") {
+			t.Errorf("statusMsg = %q, want 'Not a template'", m.statusMsg)
+		}
+	})
+}
+
+func TestCatModeAutoRevertOnNavigation(t *testing.T) {
+	m, _ := setupTemplateModel(t)
+	m.catMode = true
+	m.syncFocus()
+
+	// Navigate down to the next file — should revert catMode
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = result.(Model)
+
+	if m.catMode {
+		t.Error("catMode should auto-revert to false when navigating to a different file")
+	}
+}
+
+func TestDetailPaneTitleInCatMode(t *testing.T) {
+	m, _ := setupTemplateModel(t)
+	m.catMode = true
+	m.diffView.path = ".aliases"
+
+	view := m.View()
+	if !strings.Contains(view, "chezmoi cat") {
+		t.Errorf("View() missing 'chezmoi cat' in title, got:\n%s", view)
+	}
+}
+
+func TestDiffViewContextInCatMode(t *testing.T) {
+	m, _ := setupTemplateModel(t)
+	m.catMode = true
+	m.syncFocus()
+
+	if m.diffView.context != "cat" {
+		t.Errorf("diffView.context = %q, want 'cat'", m.diffView.context)
+	}
 }

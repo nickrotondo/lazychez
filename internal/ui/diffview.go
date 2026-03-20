@@ -11,6 +11,7 @@ type DiffViewModel struct {
 	viewport viewport.Model
 	path     string
 	rawDiff  string
+	context  string // "chezmoi" or "git" — determines explainer text
 	focused  bool
 	ready    bool
 }
@@ -27,9 +28,8 @@ func (m *DiffViewModel) SetDimensions(w, h int) {
 		m.viewport.Width = w
 		m.viewport.Height = h
 	}
-	// Re-render with current content at new dimensions
 	if m.rawDiff != "" {
-		m.viewport.SetContent(colorizeDiff(m.rawDiff))
+		m.viewport.SetContent(m.buildContent())
 	}
 }
 
@@ -37,9 +37,43 @@ func (m *DiffViewModel) SetContent(path, diff string) {
 	m.path = path
 	m.rawDiff = diff
 	if m.ready {
-		m.viewport.SetContent(colorizeDiff(diff))
+		m.viewport.SetContent(m.buildContent())
 		m.viewport.GotoTop()
 	}
+}
+
+func (m *DiffViewModel) SetContext(ctx string) {
+	if m.context == ctx {
+		return
+	}
+	m.context = ctx
+	if m.ready && m.rawDiff != "" {
+		m.viewport.SetContent(m.buildContent())
+	}
+}
+
+func (m *DiffViewModel) buildContent() string {
+	var explainer string
+	switch m.context {
+	case "chezmoi":
+		explainer = NormalItem.Foreground(MutedColor).Render("Shows what chezmoi apply would change in your destination")
+	case "git":
+		explainer = NormalItem.Foreground(MutedColor).Render("Unstaged changes in your local git repository")
+	case "cat":
+		explainer = NormalItem.Foreground(MutedColor).Render("Rendered template output for this machine")
+	}
+
+	var body string
+	if m.context == "cat" {
+		body = m.rawDiff // plain text, no diff colorization
+	} else {
+		body = colorizeDiff(m.rawDiff)
+	}
+
+	if explainer != "" {
+		return explainer + "\n" + body
+	}
+	return body
 }
 
 func (m *DiffViewModel) SetFocused(focused bool) {
@@ -69,7 +103,7 @@ func (m DiffViewModel) Update(msg tea.Msg) (DiffViewModel, tea.Cmd) {
 
 func (m DiffViewModel) View() string {
 	if m.rawDiff == "" {
-		return NormalItem.Foreground(MutedColor).Render("Select a file to view diff")
+		return NormalItem.Foreground(MutedColor).Render("Select a file to view details")
 	}
 	if !m.ready {
 		return ""

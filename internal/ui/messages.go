@@ -20,6 +20,12 @@ type DiffMsg struct {
 	Err  error
 }
 
+type CatMsg struct {
+	Path    string
+	Content string
+	Err     error
+}
+
 // Action results
 
 type AddResultMsg struct {

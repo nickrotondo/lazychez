@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuildTree_FlatFiles(t *testing.T) {
 	items := []FileItem{
-		{Path: ".zshrc", SourceState: ' ', DestState: ' '},
-		{Path: ".gitconfig", SourceState: ' ', DestState: ' '},
+		{Path: ".zshrc", AddCol: ' ', ApplyCol: ' '},
+		{Path: ".gitconfig", AddCol: ' ', ApplyCol: ' '},
 	}
 	root := buildTree(items)
 	if len(root.children) != 2 {
@@ -64,11 +64,11 @@ func TestBuildTree_AlphabeticalMix(t *testing.T) {
 
 func TestBuildTree_PurelyAlphabetical(t *testing.T) {
 	items := []FileItem{
-		{Path: ".afile", Drift: DriftNone},
-		{Path: ".bfile", Drift: DriftDestEdited, SourceState: 'M'},
+		{Path: ".afile", AddCol: ' ', ApplyCol: ' '},
+		{Path: ".bfile", AddCol: 'M', ApplyCol: ' '},
 	}
 	root := buildTree(items)
-	// Purely alphabetical regardless of drift
+	// Purely alphabetical regardless of status
 	if root.children[0].name != ".afile" {
 		t.Errorf("first child = %q, want .afile", root.children[0].name)
 	}
@@ -202,7 +202,7 @@ func TestFileListModel_SelectedPathReturnsEmptyForDir(t *testing.T) {
 
 func TestFlattenTree_PreservesFileData(t *testing.T) {
 	items := []FileItem{
-		{Path: ".zshrc", SourceRelPath: "dot_zshrc", SourceState: 'M', DestState: ' ', Drift: DriftDestEdited},
+		{Path: ".zshrc", SourceRelPath: "dot_zshrc", AddCol: 'M', ApplyCol: ' '},
 	}
 	root := buildTree(items)
 	flat := flattenTree(root, nil)
@@ -217,8 +217,8 @@ func TestFlattenTree_PreservesFileData(t *testing.T) {
 	if f.SourceRelPath != "dot_zshrc" {
 		t.Errorf("SourceRelPath = %q, want dot_zshrc", f.SourceRelPath)
 	}
-	if f.Drift != DriftDestEdited {
-		t.Errorf("Drift = %d, want DriftDestEdited", f.Drift)
+	if f.AddCol != 'M' {
+		t.Errorf("AddCol = %c, want M", f.AddCol)
 	}
 	if f.TreeName != ".zshrc" {
 		t.Errorf("TreeName = %q, want .zshrc", f.TreeName)

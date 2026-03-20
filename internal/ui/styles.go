@@ -18,6 +18,7 @@ var (
 	SelectedBg    = lipgloss.Color("#114a5f")
 	MutedColor    = lipgloss.Color("#5a7a86")
 	DirColor      = lipgloss.Color("#A2C5D2")
+	TemplateColor = lipgloss.Color("#26D6D9")
 	SuccessColor  = lipgloss.Color("#98e481")
 	ErrorColor    = lipgloss.Color("#e48281")
 
@@ -49,10 +50,8 @@ var (
 	NormalItem = lipgloss.NewStyle().Foreground(TextColor)
 
 	// Status indicators
-	SourceEditedIndicator = lipgloss.NewStyle().Foreground(ModifiedColor).SetString("●") // source changed → apply
-	DestEditedIndicator   = lipgloss.NewStyle().Foreground(TitleColor).SetString("◆")   // dest changed → add
-	AddedIndicator       = lipgloss.NewStyle().Foreground(AddedColor).SetString("+")
-	DeletedIndicator     = lipgloss.NewStyle().Foreground(DeletedColor).SetString("−")
+	AddedIndicator   = lipgloss.NewStyle().Foreground(AddedColor).SetString("+")
+	DeletedIndicator = lipgloss.NewStyle().Foreground(DeletedColor).SetString("−")
 
 	// Diff line styles
 	DiffAdd  = lipgloss.NewStyle().Foreground(DiffAddColor)
