@@ -46,7 +46,7 @@ func NewCLI(sourceDir string) *CLI {
 }
 
 func (c *CLI) Status(ctx context.Context) ([]StatusEntry, error) {
-	out, err := c.run(ctx, "status", "--short")
+	out, err := c.run(ctx, "status", "--short", "-u")
 	if err != nil {
 		return nil, fmt.Errorf("git status: %w", err)
 	}
